@@ -1,4 +1,4 @@
-# 🚀 Project: Market-Wide Anomaly Tracker (MWAT)
+# 🚨 Project: Market-Wide Anomaly Tracker (MWAT)
 
 ## Mission:
 To provide traders with instant, context-rich alerts for unexpected, non-market-driven price movements. The MWAT system detects stock moves that are statistical anomalies and immediately determines the fundamental cause, transforming raw market noise into actionable intelligence.
