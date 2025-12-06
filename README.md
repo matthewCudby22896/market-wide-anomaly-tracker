@@ -1,1 +1,1 @@
-# Anomalous-Stock-Movement-Detector
+# Market Wide Anomaly Tracker
