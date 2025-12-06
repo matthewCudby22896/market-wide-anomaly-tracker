@@ -1,24 +1,35 @@
-# Market Wide Anomaly Tracker
+# 🚀 Project: Market-Wide Anomaly Tracker (MWAT)
 
-### Mission:
+## Mission:
+To provide traders with instant, context-rich alerts for unexpected, non-market-driven price movements. The MWAT system detects stock moves that are statistical anomalies and immediately determines the fundamental cause, transforming raw market noise into actionable intelligence.
 
-To detect stock moves that are considere statistical anomalies and then quickly determine the fundamental cause for the move in the stock market, providing traders with instant, context-rich alerts for unexpected, non-market-drive price movements.
+---
 
 ## Core Components
 
-# Anomaly Detection System 
+### 1. Anomaly Detection Engine
 
-- Ingests real-time pricing data from polygon.io maintaining a state for each tracked stock.
-- Detects when an anomalous move occurs in a shares price, triggering an anomalous-move alert which triggers an alert to all connected clients & the triggering of an agentic system that aims to determine the reason for the move.
-- Given the high number of shares that will be tracked this will likely need to be a distributed system that will require automatic deployment to a cloud provider.
-  
-# Anomaly Detection Client
+This component is the system's core quantitative brain, responsible for high-speed data ingestion and anomaly identification.
 
-- Local client that runs on the users local system and ingests anomalous-move alerts and the corresponding output from the agentic pipeline, displaying both to the user via the terminal.
+* **Real-Time Data Ingestion:** Ingests live pricing data from Polygon.io, maintaining a continuous state for every tracked stock across the market.
+* **Anomaly Detection:** Continuously compares a stock's current price change against its historical and expected behavior. When an anomalous move is detected, it triggers a system-wide alert and initiates the Agentic Analysis Pipeline.
+* **Scalable Architecture:** Given the high volume and velocity of data required to track the entire market, the system is designed as a distributed application, requiring automatic deployment and scaling on a cloud provider.
 
-# Agentic Move Cause Analysis Pipeline
+---
 
-- TBD: Some sort of agentic system that scans a set of datasources or the internet as a whole to attempt to determine the fundamental cause for an anomalous share price move.
+### 2. Agentic Cause Analysis Pipeline
 
+This intelligent system is triggered by an anomaly alert, transforming from a passive monitor into an active research analyst within seconds.
 
-  
+* **Objective:** To swiftly scan and process a wide range of external data sources (including news sites and social media) to determine the **fundamental cause** for the share price move.
+* **Process:** The pipeline employs intelligent agents to aggregate, filter, and analyze information related to the anomalous ticker and time window.
+* **Output:** Generates a concise summary and classification of the likely cause (e.g., earnings, FDA approval, rumor), which is then packaged with the original alert.
+
+---
+
+### 3. Local Client Interface
+
+The user-facing component designed for speed and clarity.
+
+* **Alert Delivery:** A lightweight local application that runs on the user's system, maintaining a persistent connection to the MWAT backend.
+* **User Interface:** Displays both the raw **Anomalous-Move Alert** (e.g., Ticker, magnitude, time) and the corresponding **Agentic Analysis Output** (summary and cause) in a clear, terminal-based interface.
