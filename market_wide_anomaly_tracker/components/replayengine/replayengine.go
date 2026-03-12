@@ -1,6 +1,7 @@
 package replayengine
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,47 +10,128 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-/*
-
-WORK:
-
-- basic web socket server that can accept connections
-- upon recieving a connection a listen & send goroutine pair are launched
-
-*/
-
-// Every time a client makes a connection this function is run within it's
-// own thread.
-type Connection struct {
+type Server struct {
+	Hub *Hub
 }
 
-func webSocketServer(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, nil)
-	if err != nil {
+type Hub struct {
+	// For registering a Client with the Hub
+	register chan *Client
+	// For unregistering a Client from the Hub
+	unregister chan *Client
+	// Used to trigger graceful shutdown of the Hub
+	stop chan struct{}
+	// Essentially a Set of the currently `registered` clients
+	clients map[*Client]bool
+}
+
+type Client struct {
+	Ctx        context.Context
+	CancelCtx  context.CancelFunc
+	Connection *websocket.Conn
+	Hub        *Hub
+	Outbox     chan any      // For sending
+	Shutdown   chan struct{} // Triggered by Hub when shutting down the server
+}
+
+func NewHub() *Hub {
+	return &Hub{
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		stop:       make(chan struct{}),
+		clients:    make(map[*Client]bool),
+	}
+}
+
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register: // For when a client has opened a connection
+			h.clients[client] = true
+
+			fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
+
+		case client := <-h.unregister: // For when a client closes the connection
+			delete(h.clients, client)
+
+			fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
+
+		case <-h.stop: // For when the Hub has been called to shutdown
+
+			// Shutdown all server-client connections, before returning itself
+			for client := range h.clients {
+				close(client.Shutdown)
+				delete(h.clients, client)
+			}
+			return
+		}
+	}
+}
+
+func CreateClient() {
+
+}
+
+func (c *Client) StartClient() {
+	// Send the Hub a reference of itself to register
+	c.Hub.register <- c
+
+	// Unregister the client when the connection closes
+	defer c.UnregisterFromHub()
+
+	// Start go routine to listen for shutdown (shutdown on context closure)
+	go c.ListenForShutdown()
+
+	// Start SENDER go routine (shutdown on context closure)
+	go c.SenderThread()
+
+	go c.ListenerThread()
+
+	<-c.Ctx.Done()
+}
+
+func (c *Client) UnregisterFromHub() {
+	select {
+	// If Hub is listening send reference of self to unregister
+	case c.Hub.unregister <- c:
+	case <-c.Shutdown:
+	}
+}
+
+// Exits on either:
+//   - Cancellation of ctx from client closing connection
+//   - Shutdown signal sent from parent Hub -> triggering ctx cancellation
+func (c *Client) ListenForShutdown() {
+	select {
+	case <-c.Shutdown:
+		// The hub has signalled for the client connection to be shutdown
+		c.CancelCtx()
+	case <-c.Ctx.Done():
+		// The user disconnected normally
 		return
 	}
-	defer c.CloseNow()
+}
 
-	ctx := r.Context()
-
-	outbox := make(chan any, 10)
-
-	// Start writer go routine
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg := <-outbox:
-				wsjson.Write(ctx, c, msg)
-			}
+// Exits on either:
+//   - Cancellation of ctx
+func (c *Client) SenderThread() {
+	for {
+		select {
+		case <-c.Ctx.Done():
+			return
+		case msg := <-c.Outbox:
+			wsjson.Write(c.Ctx, c.Connection, msg)
 		}
-	}()
+	}
+}
 
-	// Start reader go routine in the current thread
+// Exits on either:
+//   - Cancellation of ctx
+func (c *Client) ListenerThread() {
 	for {
 		var v any
-		err := wsjson.Read(ctx, c, &v)
+		fmt.Println("Listening...")
+		err := wsjson.Read(c.Ctx, c.Connection, &v)
 		if err != nil {
 			fmt.Println("Reader error/disconnect:", err)
 			break
@@ -58,12 +140,41 @@ func webSocketServer(w http.ResponseWriter, r *http.Request) {
 
 		// TODO: Remove
 		// Test: Send something back
-		outbox <- map[string]string{"echo": "got it"}
+		c.Outbox <- map[string]string{"echo": "got it"}
 	}
 }
+
+func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
+	c, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer c.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	client := &Client{
+		Ctx:        ctx,
+		CancelCtx:  cancel,
+		Connection: c,
+		Hub:        s.Hub,
+		Outbox:     make(chan any, 10),
+		Shutdown:   make(chan struct{}),
+	}
+
+	client.StartClient()
+}
 func runWebSocketServer() {
-	http.HandleFunc("/ws", webSocketServer)
+	// Init & Start Hub
+	hub := NewHub()
+	go hub.Run()
+
+	// Init Server
+	server := &Server{Hub: hub}
+
+	http.HandleFunc("/ws", server.handleConnection)
 	fmt.Printf("WebSocket Server listening on %s\n", replayEnginerServerSocket)
+
+	// blocking
 	err := http.ListenAndServe(replayEnginerServerSocket, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
