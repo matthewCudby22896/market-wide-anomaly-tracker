@@ -68,10 +68,6 @@ func (h *Hub) Run() {
 	}
 }
 
-func CreateClient() {
-
-}
-
 func (c *Client) StartClient() {
 	// Send the Hub a reference of itself to register
 	c.Hub.register <- c
