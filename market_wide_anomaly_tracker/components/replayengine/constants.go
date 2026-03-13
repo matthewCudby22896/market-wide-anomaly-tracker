@@ -14,6 +14,12 @@ type SubscriptionRequest struct {
 	Tickers []Ticker
 }
 
+
+type BroadcastMessage struct {
+	Ticker Ticker
+	Data   any
+}
+
 type AggregateBar struct {
 	Event   string  `json:"ev"` // Event Type (e.g., "AM")
 	Symbol  string  `json:"sym"`

@@ -47,7 +47,7 @@ func (c *Client) StartClient() {
 func (c *Client) ListenerThread() {
 	for {
 		var v Message
-		err := wsjson.Read(c.Ctx, c.Connection, &v)
+		err := wsjson.Read(c.Ctx, c.Connection, &vc)
 		if err != nil {
 			fmt.Println("Reader error/disconnect:", err)
 			c.CancelCtx()
@@ -81,7 +81,7 @@ func (c *Client) SenderThread() {
 			if err != nil {
 				fmt.Println(err)
 			}
-		}
+		c}
 	}
 }
 

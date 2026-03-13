@@ -15,12 +15,13 @@ type Server struct {
 	Hub *Hub
 }
 
-type BroadcastMessage struct {
-	Ticker Ticker
-	Data   any
+func (s *Server) Shutdown() {
+	s.Hub.Shutdown <- struct{}{}
 }
 
 type Hub struct {
+	// Can be triggered by parent Server
+	Shutdown chan struct{}
 	// For registering a Client with the Hub
 	register chan *Client
 	// For unregistering a Client from the Hub
@@ -67,13 +68,22 @@ func NewHub() *Hub {
 func (h *Hub) Run() {
 	for {
 		select {
+		case <-h.Shutdown:
+			// Shutdown child ticker threads
+			for _, tickerThread := range h.ownedTickerThreads {
+				tickerThread.Shutdown <- struct{}{}
+			}
+			// Trigger shutdown of clients
+			for client := range maps.Keys(h.clients) {
+				client.Shutdown <- struct{}{}
+			}
+
 		case broadcastMessage := <-h.broadcast:
 			for client := range h.tickerToClient[broadcastMessage.Ticker] {
 				client.Outbox <- broadcastMessage.Data
 			}
 
 		case subReq := <-h.subscribe:
-			fmt.Println("Sub")
 			h.handleSub(subReq)
 
 		case subReq := <-h.unsubscribe:
@@ -132,7 +142,7 @@ func (h *Hub) handleSub(subReq SubscriptionRequest) {
 			continue
 		}
 
-		h.tickerToClient[ticker][subReq.Client] = struct{}{}
+		h.tickerToClient[ticker][subReq.Client] = struct{}{	 }
 		h.clientToSubbedTickers[subReq.Client][ticker] = struct{}{}
 
 		fmt.Printf("Client subscribed to %s, total %d\n", ticker, len(h.tickerToClient[ticker]))
@@ -185,13 +195,13 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	client := &Client{
-		Ctx:        ctx,
-		CancelCtx:  cancel,
-		Connection: c,
-		Hub:        s.Hub,
-		Outbox:     make(chan any, 10),
-		Shutdown:   make(chan struct{}),
-		subscribe: s.Hub.subscribe,
+		Ctx:         ctx,
+		CancelCtx:   cancel,
+		Connection:  c,
+		Hub:         s.Hub,
+		Outbox:      make(chan any, 10),
+		Shutdown:    make(chan struct{}),
+		subscribe:   s.Hub.subscribe,
 		unsubscribe: s.Hub.unsubscribe,
 	}
 
