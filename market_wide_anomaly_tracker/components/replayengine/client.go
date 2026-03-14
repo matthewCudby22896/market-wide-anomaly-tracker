@@ -14,7 +14,7 @@ type Client struct {
 	Connection *websocket.Conn
 
 	// TODO: Remove and replace with needed pipes
-	Hub      *Hub
+	Hub      *hub
 	Outbox   chan any      // For sending
 	Shutdown chan struct{} // Triggered by Hub when shutting down the server
 
