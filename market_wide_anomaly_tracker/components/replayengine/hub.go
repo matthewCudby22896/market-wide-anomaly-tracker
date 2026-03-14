@@ -101,10 +101,8 @@ func (h *hub) Run() {
 			return
 
 		// Handle incoming broadcast message from ticker threads
-		case broadcastMessage := <-h.broadcast:
-			for client := range h.tickerToClient[broadcastMessage.Ticker] {
-				client.Outbox <- broadcastMessage.Data
-			}
+		case msg := <-h.broadcast:
+			h.handleBroadcast(msg)
 
 		// Handle Client's request to subscribe
 		case subReq := <-h.subscribe:
@@ -134,6 +132,13 @@ func (h *hub) shutdown() {
 	for client := range maps.Keys(h.clients) {
 		close(client.Shutdown)
 		delete(h.clients, client)
+	}
+}
+
+func (h *hub) handleBroadcast(msg BroadcastMessage) {
+	// Fan-out msg to subscribed clients
+	for client := range h.tickerToClient[msg.Ticker] {
+		client.Outbox <- msg.Data
 	}
 }
 
