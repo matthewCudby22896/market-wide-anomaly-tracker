@@ -20,14 +20,14 @@ type ClientSignallingAPI interface {
 }
 
 // Hub functionality exposed to TickerThread
-type TickerThreadAPI interface {
+type BroadcastIngester interface {
 	BroadcastMessagePipe() chan<- BroadcastMessage
 }
 
 type Hub interface {
 	ClientSignallingAPI
 	DataAvailabilityConsumer
-	TickerThreadAPI
+	BroadcastIngester
 	SignalShutdownPipe() chan<- struct{}
 }
 
@@ -47,7 +47,7 @@ type hub struct {
 	// e.g. "APPL" to slice of Client's subscribed to APPL
 	tickerToClient map[Ticker]map[*Client]struct{}
 	// For the hub to maintain a reference to each of it's owned TickerThreads
-	ownedTickerThreads map[Ticker]*TickerThreadOwner
+	ownedTickerThreads map[Ticker]*TickerThread
 	// Used when a client has disconnected and the Hub needs to unsub the client from all it's subbed tickers
 	clientToSubbedTickers map[*Client]map[Ticker]struct{}
 
@@ -68,7 +68,7 @@ func NewHub() *hub {
 		// Maps: Must be initialized via make() or they will panic on first use.
 		clients:               make(map[*Client]struct{}),
 		tickerToClient:        make(map[Ticker]map[*Client]struct{}),
-		ownedTickerThreads:    make(map[Ticker]*TickerThreadOwner),
+		ownedTickerThreads:    make(map[Ticker]*TickerThread),
 		clientToSubbedTickers: make(map[*Client]map[Ticker]struct{}),
 	}
 }
@@ -208,10 +208,10 @@ func (h *hub) handleUnregister(c *Client) {
 }
 
 func (h *hub) startTickerThread(ticker Ticker) {
-	tickerOwner := TickerThreadOwner{
-		broadcast: h.broadcast,
-		Shutdown:  make(chan struct{}),
-		Ticker:    ticker,
+	tickerOwner := TickerThread{
+		ingester: h,
+		Shutdown: make(chan struct{}),
+		Ticker:   ticker,
 	}
 
 	go tickerOwner.RunThread()

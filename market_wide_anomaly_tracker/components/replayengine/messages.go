@@ -2,7 +2,7 @@ package replayengine
 
 import "cloud.google.com/go/civil"
 
-type DataReadyMsg {
+type DataReadyMsg struct {
 	ticker Ticker
-	date  civil.Data
+	date  civil.Date
 }

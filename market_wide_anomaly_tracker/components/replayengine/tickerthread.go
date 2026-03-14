@@ -4,14 +4,13 @@ import (
 	"time"
 )
 
-
-type TickerThreadOwner struct {
-	broadcast chan<- BroadcastMessage
-	Shutdown  chan struct{}
-	Ticker    Ticker
+type TickerThread struct {
+	ingester BroadcastIngester
+	Shutdown chan struct{}
+	Ticker   Ticker
 }
 
-func (t *TickerThreadOwner) RunThread() {
+func (t *TickerThread) RunThread() {
 	// 1. Initialize the ticker for 1-second intervals
 	ticker := time.NewTicker(1 * time.Second)
 
@@ -33,7 +32,7 @@ func (t *TickerThreadOwner) RunThread() {
 
 			// Send to the broadcast channel
 			// (Consider using a non-blocking send here if you have many listeners)
-			t.broadcast <- dummyMsg
+			t.ingester.BroadcastMessagePipe() <- dummyMsg
 		}
 	}
 }
