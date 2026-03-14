@@ -7,16 +7,61 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/coder/websocket"
 )
 
-type Server struct {
-	Hub *Hub
+type ReplayEngineServer struct {
+	Hub      *Hub
+	shutdown chan struct{}
+	server   *http.Server
 }
 
-func (s *Server) Shutdown() {
-	s.Hub.Shutdown <- struct{}{}
+func initServer() *ReplayEngineServer {
+	mux := http.NewServeMux()
+
+	// Setup
+	s := &ReplayEngineServer{
+		Hub:      NewHub(),
+		shutdown: make(chan struct{}),
+	}
+	mux.HandleFunc("/ws", s.handleConnection)
+
+	s.server = &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	// Start the Hub
+	go s.Hub.Run()
+
+	// Start the HTTP Listener thread
+	go s.HTTPListen()
+
+	return s
+}
+
+func (s *ReplayEngineServer) Shutdown() {
+	fmt.Printf("\nReplayEngineServer shutting down...\n")
+	close(s.Hub.Shutdown)
+
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    if err := s.server.Shutdown(ctx); err != nil {
+        fmt.Printf("HTTP shutdown error: %v\n", err)
+    }
+}
+
+func (s *ReplayEngineServer) HTTPListen() {
+	fmt.Printf("ReplayEnginerServer listening on %s\n", s.server.Addr)
+	err := s.server.ListenAndServe()
+	if err != nil {
+		log.Fatalf("ListenAndServe: %s", err)
+		s.Shutdown()
+		return
+	}
 }
 
 type Hub struct {
@@ -34,8 +79,6 @@ type Hub struct {
 	// For TickerThreadOwners to broadcast price updates to, the Hub handles fanning the msgs out to the correct clients
 	broadcast chan BroadcastMessage
 
-	// Used to trigger graceful shutdown of the Hub
-	stop chan struct{}
 	// Essentially a Set of the currently `registered` clients
 	clients map[*Client]bool
 	// e.g. "APPL" to slice of Client's subscribed to APPL
@@ -55,7 +98,7 @@ func NewHub() *Hub {
 		subscribe:   make(chan SubscriptionRequest),
 		unsubscribe: make(chan SubscriptionRequest),
 		broadcast:   make(chan BroadcastMessage, 1024), // Buffer high-volume data
-		stop:        make(chan struct{}),
+		Shutdown:    make(chan struct{}),
 
 		// Maps: Must be initialized via make() or they will panic on first use.
 		clients:               make(map[*Client]bool),
@@ -75,26 +118,34 @@ func (h *Hub) Run() {
 			}
 			// Trigger shutdown of clients
 			for client := range maps.Keys(h.clients) {
-				client.Shutdown <- struct{}{}
+				close(client.Shutdown)
+				delete(h.clients, client)
 			}
 
+			return
+
+		// Handle incoming broadcast message from ticker threads
 		case broadcastMessage := <-h.broadcast:
 			for client := range h.tickerToClient[broadcastMessage.Ticker] {
 				client.Outbox <- broadcastMessage.Data
 			}
 
+		// Handle Client's request to subscribe
 		case subReq := <-h.subscribe:
 			h.handleSub(subReq)
 
+		// Handle Client's request to unsubscribe
 		case subReq := <-h.unsubscribe:
 			h.handleUnsub(subReq)
 
+		// Client registration
 		case client := <-h.register:
 			h.clients[client] = true
 
 			fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
 
-		case client := <-h.unregister: // For when a client closes the connection
+		// Client unregistration
+		case client := <-h.unregister:
 
 			if tickers, ok := h.clientToSubbedTickers[client]; ok && len(tickers) > 0 {
 				h.handleUnsub(
@@ -108,15 +159,6 @@ func (h *Hub) Run() {
 			delete(h.clients, client)
 
 			fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
-
-		case <-h.stop: // For when the Hub has been called to shutdown
-
-			// Shutdown all server-client connections, before returning itself
-			for client := range h.clients {
-				close(client.Shutdown)
-				delete(h.clients, client)
-			}
-			return
 		}
 	}
 }
@@ -126,7 +168,7 @@ func (h *Hub) handleSub(subReq SubscriptionRequest) {
 
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
 			fmt.Printf("First subscriber for %s. Starting ticker thread.\n", ticker)
-			h.StartTickerThread(ticker)
+			h.startTickerThread(ticker)
 		}
 
 		if h.tickerToClient[ticker] == nil {
@@ -142,7 +184,7 @@ func (h *Hub) handleSub(subReq SubscriptionRequest) {
 			continue
 		}
 
-		h.tickerToClient[ticker][subReq.Client] = struct{}{	 }
+		h.tickerToClient[ticker][subReq.Client] = struct{}{}
 		h.clientToSubbedTickers[subReq.Client][ticker] = struct{}{}
 
 		fmt.Printf("Client subscribed to %s, total %d\n", ticker, len(h.tickerToClient[ticker]))
@@ -156,7 +198,7 @@ func (h *Hub) handleUnsub(subReq SubscriptionRequest) {
 
 			if len(clients) == 0 {
 				fmt.Printf("Last subscriber left for %s. Killing ticker thread.\n", ticker)
-				h.KillTickerThread(ticker)
+				h.killTickerThread(ticker)
 				delete(h.tickerToClient, ticker)
 			}
 
@@ -166,7 +208,7 @@ func (h *Hub) handleUnsub(subReq SubscriptionRequest) {
 	}
 }
 
-func (h *Hub) StartTickerThread(ticker Ticker) {
+func (h *Hub) startTickerThread(ticker Ticker) {
 	tickerOwner := TickerThreadOwner{
 		broadcast: h.broadcast,
 		Shutdown:  make(chan struct{}),
@@ -178,13 +220,13 @@ func (h *Hub) StartTickerThread(ticker Ticker) {
 	h.ownedTickerThreads[ticker] = &tickerOwner
 }
 
-func (h *Hub) KillTickerThread(ticker Ticker) {
+func (h *Hub) killTickerThread(ticker Ticker) {
 	thread := h.ownedTickerThreads[ticker]
 	thread.Shutdown <- struct{}{}
 	delete(h.ownedTickerThreads, ticker)
 }
 
-func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
+func (s *ReplayEngineServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -207,24 +249,7 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	client.StartClient()
 }
-func runWebSocketServer() {
-	// Init & Start Hub
-	hub := NewHub()
-	go hub.Run()
 
-	// Init Server
-	server := &Server{Hub: hub}
-
-	http.HandleFunc("/ws", server.handleConnection)
-	fmt.Printf("WebSocket Server listening on %s\n", replayEnginerServerSocket)
-
-	// blocking
-	err := http.ListenAndServe(replayEnginerServerSocket, nil)
-	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
-	}
-}
-
-func LaunchServer() {
-	runWebSocketServer()
+func LaunchServer() *ReplayEngineServer {
+	return initServer()
 }

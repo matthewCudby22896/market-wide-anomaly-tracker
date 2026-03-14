@@ -14,13 +14,13 @@ type Client struct {
 	Connection *websocket.Conn
 
 	// TODO: Remove and replace with needed pipes
-	Hub        *Hub
-	Outbox     chan any      // For sending
-	Shutdown   chan struct{} // Triggered by Hub when shutting down the server
+	Hub      *Hub
+	Outbox   chan any      // For sending
+	Shutdown chan struct{} // Triggered by Hub when shutting down the server
 
 	// For sending (un)subscription requests to the Hub
-	subscribe  chan<- SubscriptionRequest
-	unsubscribe  chan<- SubscriptionRequest
+	subscribe   chan<- SubscriptionRequest
+	unsubscribe chan<- SubscriptionRequest
 }
 
 func (c *Client) StartClient() {
@@ -47,14 +47,14 @@ func (c *Client) StartClient() {
 func (c *Client) ListenerThread() {
 	for {
 		var v Message
-		err := wsjson.Read(c.Ctx, c.Connection, &vc)
+		err := wsjson.Read(c.Ctx, c.Connection, &v)
 		if err != nil {
 			fmt.Println("Reader error/disconnect:", err)
 			c.CancelCtx()
 			return
 		}
 
-		fmt.Printf("Received:\n %#v\n", v)
+		fmt.Printf("Received: %#v\n", v)
 
 		switch v.Action {
 		case "subscribe":
@@ -81,7 +81,7 @@ func (c *Client) SenderThread() {
 			if err != nil {
 				fmt.Println(err)
 			}
-		c}
+		}
 	}
 }
 

@@ -14,7 +14,6 @@ type SubscriptionRequest struct {
 	Tickers []Ticker
 }
 
-
 type BroadcastMessage struct {
 	Ticker Ticker
 	Data   any
