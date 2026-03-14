@@ -28,16 +28,16 @@ type Hub interface {
 	ClientSignallingAPI
 	DataAvailabilityConsumer
 	TickerThreadAPI
-	SignalShutdownPipe() chan<- struct{} 
+	SignalShutdownPipe() chan<- struct{}
 }
 
 // hub implements the Hub interface
 type hub struct {
 	shutdown chan struct{}
 
-	register chan *Client
-	unregister chan *Client
-	subscribe chan SubscriptionRequest
+	register    chan *Client
+	unregister  chan *Client
+	subscribe   chan SubscriptionRequest
 	unsubscribe chan SubscriptionRequest
 
 	broadcast chan BroadcastMessage
@@ -57,14 +57,13 @@ type hub struct {
 // INIT METHOD
 func NewHub() *hub {
 	return &hub{
-		// Channels: Use unbuffered for control flow,
-		// but buffered for data (broadcast) to prevent blocking.
-		register:    make(chan *Client),
-		unregister:  make(chan *Client),
-		subscribe:   make(chan SubscriptionRequest),
-		unsubscribe: make(chan SubscriptionRequest),
-		broadcast:   make(chan BroadcastMessage, 1024), // Buffer high-volume data
-		shutdown:    make(chan struct{}),
+		register:      make(chan *Client),
+		unregister:    make(chan *Client),
+		subscribe:     make(chan SubscriptionRequest),
+		unsubscribe:   make(chan SubscriptionRequest),
+		broadcast:     make(chan BroadcastMessage, 1024), // Buffer high-volume data
+		shutdown:      make(chan struct{}),
+		dataReadyChan: make(chan DataReadyMsg),
 
 		// Maps: Must be initialized via make() or they will panic on first use.
 		clients:               make(map[*Client]struct{}),
@@ -73,6 +72,25 @@ func NewHub() *hub {
 		clientToSubbedTickers: make(map[*Client]map[Ticker]struct{}),
 	}
 }
+
+// ClientSignallingAPI interface implementation
+func (h *hub) RegisterPipe() chan<- *Client       { return h.register }
+func (h *hub) UnregisterPipe() chan<- *Client     { return h.unregister }
+func (h *hub) SubscribePipe() chan<- SubscriptionRequest {
+	return h.subscribe
+}
+func (h *hub) UnsubPipe() chan<- SubscriptionRequest {
+	return h.unsubscribe
+}
+
+// DataAvailabilityConsumer interface implementation
+func (h *hub) DataReadyPipe() chan<- DataReadyMsg { return h.dataReadyChan }
+
+// TickerThreadAPI interface implementation
+func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
+
+// Hub interface implementation
+func (h *hub) SignalShutdownPipe() chan<- struct{} { return h.shutdown }
 
 // CORE LOOP
 func (h *hub) Run() {
