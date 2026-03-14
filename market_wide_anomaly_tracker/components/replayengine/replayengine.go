@@ -80,7 +80,7 @@ type Hub struct {
 	broadcast chan BroadcastMessage
 
 	// Essentially a Set of the currently `registered` clients
-	clients map[*Client]bool
+	clients map[*Client]struct{}
 	// e.g. "APPL" to slice of Client's subscribed to APPL
 	tickerToClient map[Ticker]map[*Client]struct{}
 	// For the hub to maintain a reference to each of it's owned TickerThreads
@@ -101,7 +101,7 @@ func NewHub() *Hub {
 		Shutdown:    make(chan struct{}),
 
 		// Maps: Must be initialized via make() or they will panic on first use.
-		clients:               make(map[*Client]bool),
+		clients:               make(map[*Client]struct{}),
 		tickerToClient:        make(map[Ticker]map[*Client]struct{}),
 		ownedTickerThreads:    make(map[Ticker]*TickerThreadOwner),
 		clientToSubbedTickers: make(map[*Client]map[Ticker]struct{}),
@@ -140,7 +140,7 @@ func (h *Hub) Run() {
 
 		// Client registration
 		case client := <-h.register:
-			h.clients[client] = true
+			h.clients[client] = struct{}{}
 
 			fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
 
