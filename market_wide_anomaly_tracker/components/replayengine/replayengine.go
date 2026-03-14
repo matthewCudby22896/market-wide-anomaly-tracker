@@ -67,7 +67,7 @@ func (s *ReplayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 
 func (s *ReplayEngineServer) Shutdown() {
 	fmt.Printf("\nReplayEngineServer shutting down...\n")
-	close(s.Hub.shutdown)
+	close(s.Hub.shutdownChan)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

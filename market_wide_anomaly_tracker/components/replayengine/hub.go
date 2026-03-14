@@ -33,7 +33,7 @@ type Hub interface {
 
 // hub implements the Hub interface
 type hub struct {
-	shutdown chan struct{}
+	shutdownChan chan struct{}
 
 	register    chan *Client
 	unregister  chan *Client
@@ -62,7 +62,7 @@ func NewHub() *hub {
 		subscribe:     make(chan SubscriptionRequest),
 		unsubscribe:   make(chan SubscriptionRequest),
 		broadcast:     make(chan BroadcastMessage, 1024), // Buffer high-volume data
-		shutdown:      make(chan struct{}),
+		shutdownChan:  make(chan struct{}),
 		dataReadyChan: make(chan DataReadyMsg),
 
 		// Maps: Must be initialized via make() or they will panic on first use.
@@ -74,8 +74,8 @@ func NewHub() *hub {
 }
 
 // ClientSignallingAPI interface implementation
-func (h *hub) RegisterPipe() chan<- *Client       { return h.register }
-func (h *hub) UnregisterPipe() chan<- *Client     { return h.unregister }
+func (h *hub) RegisterPipe() chan<- *Client   { return h.register }
+func (h *hub) UnregisterPipe() chan<- *Client { return h.unregister }
 func (h *hub) SubscribePipe() chan<- SubscriptionRequest {
 	return h.subscribe
 }
@@ -90,23 +90,14 @@ func (h *hub) DataReadyPipe() chan<- DataReadyMsg { return h.dataReadyChan }
 func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
 
 // Hub interface implementation
-func (h *hub) SignalShutdownPipe() chan<- struct{} { return h.shutdown }
+func (h *hub) SignalShutdownPipe() chan<- struct{} { return h.shutdownChan }
 
 // CORE LOOP
 func (h *hub) Run() {
 	for {
 		select {
-		case <-h.shutdown:
-			// Shutdown child ticker threads
-			for _, tickerThread := range h.ownedTickerThreads {
-				tickerThread.Shutdown <- struct{}{}
-			}
-			// Trigger shutdown of clients
-			for client := range maps.Keys(h.clients) {
-				close(client.Shutdown)
-				delete(h.clients, client)
-			}
-
+		case <-h.shutdownChan:
+			h.shutdown()
 			return
 
 		// Handle incoming broadcast message from ticker threads
@@ -125,26 +116,24 @@ func (h *hub) Run() {
 
 		// Client registration
 		case client := <-h.register:
-			h.clients[client] = struct{}{}
-
-			fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
+			h.handleRegister(client)
 
 		// Client unregistration
 		case client := <-h.unregister:
-
-			if tickers, ok := h.clientToSubbedTickers[client]; ok && len(tickers) > 0 {
-				h.handleUnsub(
-					SubscriptionRequest{
-						Client:  client,
-						Tickers: slices.Collect(maps.Keys(tickers)),
-					},
-				)
-			}
-
-			delete(h.clients, client)
-
-			fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
+			h.handleUnregister(client)
 		}
+	}
+}
+
+func (h *hub) shutdown() {
+	// Shutdown child ticker threads
+	for _, tickerThread := range h.ownedTickerThreads {
+		tickerThread.Shutdown <- struct{}{}
+	}
+	// Trigger shutdown of clients
+	for client := range maps.Keys(h.clients) {
+		close(client.Shutdown)
+		delete(h.clients, client)
 	}
 }
 
@@ -191,6 +180,26 @@ func (h *hub) handleUnsub(subReq SubscriptionRequest) {
 
 		}
 	}
+}
+
+func (h *hub) handleRegister(c *Client) {
+	h.clients[c] = struct{}{}
+	fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
+}
+
+func (h *hub) handleUnregister(c *Client) {
+	if tickers, ok := h.clientToSubbedTickers[c]; ok && len(tickers) > 0 {
+		h.handleUnsub(
+			SubscriptionRequest{
+				Client:  c,
+				Tickers: slices.Collect(maps.Keys(tickers)),
+			},
+		)
+	}
+
+	delete(h.clients, c)
+
+	fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
 }
 
 func (h *hub) startTickerThread(ticker Ticker) {
