@@ -48,22 +48,24 @@ func (t *tickerThread) AsynShutdown() {
 }
 
 func (t *tickerThread) Start() {
-	ticker := time.NewTicker(1 * time.Second)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
 
-	defer ticker.Stop()
+		defer ticker.Stop()
 
-	for {
-		select {
-		case <-t.Ctx.Done():
-			return
+		for {
+			select {
+			case <-t.Ctx.Done():
+				return
 
-		case <-ticker.C:
-			dummyMsg := BroadcastMessage{
-				Ticker: t.Ticker,
-				Data:   DummyAggregateBar(string(t.Ticker)),
+			case <-ticker.C:
+				dummyMsg := BroadcastMessage{
+					Ticker: t.Ticker,
+					Data:   DummyAggregateBar(string(t.Ticker)),
+				}
+
+				t.Ingester.BroadcastMessagePipe() <- dummyMsg
 			}
-
-			t.Ingester.BroadcastMessagePipe() <- dummyMsg
 		}
-	}
+	}()
 }

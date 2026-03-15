@@ -78,26 +78,35 @@ func NewHub() *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &hub{
-		Ctx:                   ctx,
-		CancelCtx:             cancel,
-		wg:                    sync.WaitGroup{},
-		requestsChan:          make(chan hubRequest, 1024),
-		broadcast:             make(chan BroadcastMessage, 1024),
-		clients:               make(map[*client]struct{}),
-		tickerToClient:        make(map[Ticker]map[*client]struct{}),
-		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
-		ownedTickerThreads:    make(map[Ticker]*tickerThread),
+		Ctx:                      ctx,
+		CancelCtx:                cancel,
+		wg:                       sync.WaitGroup{},
+		requestsChan:             make(chan hubRequest, 1024),
+		broadcast:                make(chan BroadcastMessage, 1024),
+		dataReadyChan:            make(chan dataReadyMsg, 1024),
+		clients:                  make(map[*client]struct{}),
+		tickerToClient:           make(map[Ticker]map[*client]struct{}),
+		clientToSubbedTickers:    make(map[*client]map[Ticker]struct{}),
+		ownedTickerThreads:       make(map[Ticker]*tickerThread),
+		DataAvailabilityProvider: NewDataCoordinater(),
 	}
 }
 
 func (h *hub) Shutdown() {
+	h.Printf("Shutdown")
 	// First shutdown all child components (client, ticker threads, data controller)
 
 	// Then shutdown itself
 	h.CancelCtx()
 }
 
+func (h *hub) Printf(s string, a ...any) {
+	msg := fmt.Sprintf(s, a...)
+	fmt.Printf("[Hub] %s\n", msg)
+}
+
 func (h *hub) Start() {
+	h.Printf("Starting")
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
@@ -121,6 +130,7 @@ func (h *hub) Start() {
 					h.handleUnsub(req.Client, req.Tickers)
 				}
 			case sig := <-h.dataReadyChan:
+				h.Printf("received on dataReadyChan: %#v", sig)
 				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
 					h.StartTickerThread(sig.ticker, sig.date)
 				}
@@ -138,7 +148,7 @@ func (h *hub) RegisterClient(c *client) {
 
 func (h *hub) UnregisterClient(c *client) {
 	h.requestsChan <- hubRequest{
-		Type:   REGISTER,
+		Type:   UNREGISTER,
 		Client: c,
 	}
 }
@@ -246,6 +256,7 @@ func (h *hub) killTickerThread(ticker Ticker) {
 }
 
 func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) {
+	h.Printf("Starting ticker thread for %s", ticker)
 	// Init ticker thread
 	thread := NewTickerThread(h, ticker, date)
 

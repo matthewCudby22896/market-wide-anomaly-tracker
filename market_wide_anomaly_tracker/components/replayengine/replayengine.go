@@ -45,18 +45,20 @@ func NewReplayEnginerServer() *replayEngineServer {
 }
 
 func (s *replayEngineServer) Start() {
-	// Start child components
-	fmt.Printf("[ReplayEnginerServer] starting hub...\n")
-	s.Hub.Start()
+	go func() {
+		// Start child components
+		fmt.Printf("[ReplayEnginerServer] starting hub...\n")
+		s.Hub.Start()
 
-	// Start listening
-	fmt.Printf("[ReplayEnginerServer] listening on %s\n", s.Server.Addr)
-	err := s.Server.ListenAndServe()
-	if err != nil {
-		log.Fatalf("ListenAndServe: %s", err)
-		s.Shutdown()
-		return
-	}
+		// Start listening
+		fmt.Printf("[ReplayEnginerServer] listening on %s\n", s.Server.Addr)
+		err := s.Server.ListenAndServe()
+		if err != nil {
+			log.Fatalf("ListenAndServe: %s", err)
+			s.Shutdown()
+			return
+		}
+	}()
 }
 
 func (s *replayEngineServer) Shutdown() {
