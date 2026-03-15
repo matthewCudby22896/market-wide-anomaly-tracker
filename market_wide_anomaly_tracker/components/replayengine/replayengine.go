@@ -25,7 +25,6 @@ type replayEngineServer struct {
 func NewReplayEnginerServer() *replayEngineServer {
 	// 1. Init the multiplexer
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleConnection)
 
 	// 2. Init the http server
 	server := &http.Server{
@@ -34,10 +33,15 @@ func NewReplayEnginerServer() *replayEngineServer {
 	}
 
 	// 3. Init the replayEngineServer
-	return &replayEngineServer{
+	ret := &replayEngineServer{
 		Server: server,
 		Hub:    NewHub(),
 	}
+
+	// 4. Assing handler for /ws endpoint
+	mux.HandleFunc("/ws", ret.handleConnection)
+
+	return ret
 }
 
 func (s *replayEngineServer) Start() {

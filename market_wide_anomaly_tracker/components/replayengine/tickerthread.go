@@ -58,7 +58,7 @@ func (t *tickerThread) Start() {
 			return
 
 		case <-ticker.C:
-			dummyMsg := BroadcastMessage,{
+			dummyMsg := BroadcastMessage{
 				Ticker: t.Ticker,
 				Data:   DummyAggregateBar(string(t.Ticker)),
 			}

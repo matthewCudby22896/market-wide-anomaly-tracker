@@ -1,7 +1,5 @@
 package replayengine
 
-import "context"
-
 const replayEnginerServerSocket = ":8080"
 
 type Ticker string
@@ -12,7 +10,7 @@ type Message struct {
 }
 
 type SubscriptionRequest struct {
-	Client  *Client
+	Client  *client
 	Tickers []Ticker
 }
 

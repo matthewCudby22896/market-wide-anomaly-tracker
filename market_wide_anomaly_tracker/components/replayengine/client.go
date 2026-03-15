@@ -52,12 +52,11 @@ func (c *client) Start() {
 
 	// This will ensure that the client is always unregistered from the Hub
 	// when the client disconnects
-	go func() {
+	go func(c *client) {
 		defer c.wg.Done()
 		<-c.context.Done()
-		HubClientInterface.UnregisterClient(c)
-		return
-	}()
+		c.HubClientInterface.UnregisterClient(c) // Unregister self
+	}(c)
 }
 
 func (c *client) ListenerThread() {
@@ -75,15 +74,23 @@ func (c *client) ListenerThread() {
 
 		switch v.Action {
 		case "subscribe":
-			c.HandleSub(v.Tickers)
+			c.HubClientInterface.RequestSub(c, toTypedTicker(v.Tickers))
 
 		case "unsubscribe":
-			c.HandleUnsub(v.Tickers)
+			c.HubClientInterface.RequestUnsub(c, toTypedTicker(v.Tickers))
 
 		default:
 			fmt.Println("Unrecognised `action` field : ", v.Action)
 		}
 	}
+}
+
+func toTypedTicker(arr []string) []Ticker{
+	typedTickers := make([]Ticker, len(arr))
+	for i, ticker := range arr {
+		typedTickers[i] = Ticker(ticker)
+	}
+	return typedTickers
 }
 
 func (c *client) SenderThread() {
@@ -103,12 +110,4 @@ func (c *client) SenderThread() {
 
 func (c *client) Outbox() chan<- any {
 	return c.outbox
-}
-
-func (c *client) HandleSub(tickers []string) {
-	c.HubClientInterface.SubscribePipe() <- *c.createSubRequest(tickers)
-}
-
-func (c *client) HandleUnsub(tickers []string) {
-	c.HubClientInterface.UnsubPipe() <- *c.createSubRequest(tickers)
 }

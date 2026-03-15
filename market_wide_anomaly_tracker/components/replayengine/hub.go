@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/civil"
 )
@@ -67,8 +68,9 @@ type hub struct {
 	ownedTickerThreads    map[Ticker]*tickerThread
 	clientToSubbedTickers map[*client]map[Ticker]struct{}
 
-	// End Rework
 	dataReadyChan chan dataReadyMsg
+
+	DataAvailabilityProvider
 }
 
 // INIT METHOD
@@ -84,9 +86,9 @@ func NewHub() *hub {
 		clients:               make(map[*client]struct{}),
 		tickerToClient:        make(map[Ticker]map[*client]struct{}),
 		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
-		ownedTickerThreads:    make(map[Ticker]*TickerThread),
+		ownedTickerThreads:    make(map[Ticker]*tickerThread),
 	}
-	RequestUnsub(c *client, tickers []Ticker)}
+}
 
 func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
@@ -102,7 +104,7 @@ func (h *hub) Start() {
 		for {
 			select {
 			case <-h.Ctx.Done():
-				returnn
+				return
 
 			case msg := <-h.broadcast:
 				h.handleBroadcast(msg)
@@ -120,14 +122,7 @@ func (h *hub) Start() {
 				}
 			case sig := <-h.dataReadyChan:
 				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
-					// Init ticker thread
-					thread := NewTickerThread(h, sig.ticker, sig.date)
-
-					// Add to map
-					h.ownedTickerThreads[sig.ticker] = thread
-
-					// Start
-					thread.Start()
+					h.StartTickerThread(sig.ticker, sig.date)
 				}
 			}
 		}
@@ -178,7 +173,16 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
 			fmt.Printf("First subscriber for %s. Starting ticker thread.\n", ticker)
-			h.startTickerThread(ticker)
+
+			if h.DataAvailabilityProvider.IsReady(ticker, civil.DateOf(time.Now())) == READY {
+				// If it is, send to data ready chan
+				h.dataReadyChan <- dataReadyMsg{
+					ticker: ticker,
+					date:   civil.DateOf(time.Now()),
+				}
+			}
+
+			// If not, DataAvailabilityProvider will eventually signal that it is
 		}
 
 		if h.tickerToClient[ticker] == nil {
@@ -225,10 +229,8 @@ func (h *hub) handleRegister(c *client) {
 func (h *hub) handleUnregister(c *client) {
 	if tickers, ok := h.clientToSubbedTickers[c]; ok && len(tickers) > 0 {
 		h.handleUnsub(
-			SubscriptionRequest{
-				Client:  c,
-				Tickers: slices.Collect(maps.Keys(tickers)),
-			},
+			c,
+			slices.Collect(maps.Keys(tickers)),
 		)
 	}
 
@@ -241,4 +243,15 @@ func (h *hub) killTickerThread(ticker Ticker) {
 	thread := h.ownedTickerThreads[ticker]
 	thread.AsynShutdown()
 	delete(h.ownedTickerThreads, ticker)
+}
+
+func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) {
+	// Init ticker thread
+	thread := NewTickerThread(h, ticker, date)
+
+	// Add to map
+	h.ownedTickerThreads[ticker] = thread
+
+	// Start
+	thread.Start()
 }

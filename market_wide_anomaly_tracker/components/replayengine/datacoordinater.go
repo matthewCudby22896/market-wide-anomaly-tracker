@@ -71,23 +71,25 @@ func (c *dataCoordinater) Shutdown() {
 
 // DataAvailabilityProvider interface implementation
 func (c *dataCoordinater) IsReady(t Ticker, d civil.Date) DataAvailability {
+	// TODO:
+
+	return READY
 
 	//statusMap map[string]map[Ticker]DataAvailability
-	dateStr := d.String()
-	var dayMap map[Ticker]DataAvailability
-	var ok bool
-	if dayMap, ok = c.statusMap[dateStr]; !ok {
-		c.statusMap[dateStr] = make(map[Ticker]DataAvailability)
-		dayMap = c.statusMap[dateStr]
-	}
+	// dateStr := d.String()
+	// var dayMap map[Ticker]DataAvailability
+	// var ok bool
+	// if dayMap, ok = c.statusMap[dateStr]; !ok {
+	// 	c.statusMap[dateStr] = make(map[Ticker]DataAvailability)
+	// 	dayMap = c.statusMap[dateStr]
+	// }
 
-	if dayMap[t] == READY {
-		return READY
-	}
-	c.dataFetcher.RequestHydation(t, d)
+	// if dayMap[t] == READY {
+	// 	return READY
+	// }
+	// c.dataFetcher.RequestHydation(t, d)
 
-	dayMap[t] = HYDRATING
-
+	// dayMap[t] = HYDRATING
 }
 
 // DataStateStatusConsumer
