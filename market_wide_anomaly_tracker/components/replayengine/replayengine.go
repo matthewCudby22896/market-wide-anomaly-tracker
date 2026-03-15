@@ -47,7 +47,7 @@ func (s *replayEngineServer) Start() {
 
 	// Start listening
 	fmt.Printf("[ReplayEnginerServer] listening on %s\n", s.Server.Addr)
-	err := s.server.ListenAndServe()
+	err := s.Server.ListenAndServe()
 	if err != nil {
 		log.Fatalf("ListenAndServe: %s", err)
 		s.Shutdown()
@@ -65,7 +65,7 @@ func (s *replayEngineServer) Shutdown() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //TODO: magic num
 		defer cancel()
 
-		if err := s.server.Shutdown(ctx); err != nil {
+		if err := s.Server.Shutdown(ctx); err != nil {
 			fmt.Printf("HTTP shutdown error: %v\n", err)
 		}
 	}()
@@ -79,52 +79,21 @@ func (s *replayEngineServer) Shutdown() {
 
 // Will launch in new go thread
 func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Request) {
-	// Accept and upgrade the connection
+	// 1. Accept and upgrade the connection
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		// TODO: Log
 		return
 	}
 	
-	// Create a new client instance
-	client := &client{
-		Connection:   c,
-		ClientSignallingAPI: s.Hub,
-		Outbox:       make(chan any, 10),
-		Shutdown:     make(chan struct{}),
-		subscribe:    s.Hub.subscribe,
-		unsubscribe:  s.Hub.unsubscribe,
-	}
+	// 2. Create a new client instance
+	client := NewClient(c, s.Hub)	
 
-	// Hand it off to the Hub, which controls it's lifecycle.
+	// 3. Register it with the Hub, the Hub will handle its lifecycle
+	s.Hub.RegisterClient(client)
 
-
-
-	client.StartClient()
+	// 4. Start the client up (i.e. listener / sender)
+	client.Start()
 }
 
-func (s *ReplayEngineServer) Shutdown() {
-	fmt.Printf("\nReplayEngineServer shutting down...\n")
-	close(s.Hub.shutdownChan)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	if err := s.server.Shutdown(ctx); err != nil {
-		fmt.Printf("HTTP shutdown error: %v\n", err)
-	}
-}
-
-func (s *ReplayEngineServer) HTTPListen() {
-	fmt.Printf("ReplayEnginerServer listening on %s\n", s.server.Addr)
-	err := s.server.ListenAndServe()
-	if err != nil {
-		log.Fatalf("ListenAndServe: %s", err)
-		s.Shutdown()
-		return
-	}
-}
-
-func LaunchServer() *ReplayEngineServer {
-	return Start()
-}

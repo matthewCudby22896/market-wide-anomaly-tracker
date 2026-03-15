@@ -3,13 +3,11 @@ package replayengine
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
-
 
 type Client interface {
 	LifeCycle
@@ -19,25 +17,26 @@ type Client interface {
 type client struct {
 	Connection *websocket.Conn
 
-	ClientSignallingAPI 
-	outbox   chan any 
+	HubClientInterface
 
-	context context.Context
+	outbox chan any
+
+	context       context.Context
 	cancelContext context.CancelFunc
 
 	wg sync.WaitGroup
 }
 
-func NewClient(c *websocket.Conn, hub Hub) *client{
+func NewClient(c *websocket.Conn, hub Hub) *client {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &client{
-		Connection: c,	
-		ClientSignallingAPI: hub,
-		Outbox: make(chan any, 1024),	
-		context: ctx,
-		cancelContext: cancel,
-		wg: sync.WaitGroup{},
+		Connection:          c,
+		HubClientInterface:  hub,
+		outbox:              make(chan any, 1024),
+		context:             ctx,
+		cancelContext:       cancel,
+		wg:                  sync.WaitGroup{},
 	}
 }
 
@@ -50,13 +49,14 @@ func (c *client) Start() {
 	c.wg.Add(3)
 	go c.ListenerThread()
 	go c.SenderThread()
-	// This will ensure that the client is always unregistered from the Hub 
+
+	// This will ensure that the client is always unregistered from the Hub
 	// when the client disconnects
 	go func() {
 		defer c.wg.Done()
 		<-c.context.Done()
-		// TODO: Unregister itself from the Hub
-		return	
+		HubClientInterface.UnregisterClient(c)
+		return
 	}()
 }
 
@@ -101,16 +101,16 @@ func (c *client) SenderThread() {
 	}
 }
 
-func (c *client) Outbox() chan<- any {	
+func (c *client) Outbox() chan<- any {
 	return c.outbox
 }
 
 func (c *client) HandleSub(tickers []string) {
-	c.ClientSignallingAPI.SubscribePipe() <- *c.createSubRequest(tickers)
+	c.HubClientInterface.SubscribePipe() <- *c.createSubRequest(tickers)
 }
 
 func (c *client) HandleUnsub(tickers []string) {
-	c.ClientSignallingAPI.UnsubPipe() <- *c.createSubRequest(tickers)
+	c.HubClientInterface.UnsubPipe() <- *c.createSubRequest(tickers)
 }
 
 func (c *client) createSubRequest(tickers []string) *SubscriptionRequest {
