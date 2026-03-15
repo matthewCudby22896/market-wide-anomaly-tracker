@@ -1,38 +1,60 @@
 package replayengine
 
 import (
+	"context"
 	"time"
+
+	"cloud.google.com/go/civil"
 )
 
-type TickerThread struct {
-	ingester BroadcastIngester
-	Shutdown chan struct{}
-	Ticker   Ticker
+type TickerThread interface {
+	LifeCycle
 }
 
-func (t *TickerThread) RunThread() {
-	// 1. Initialize the ticker for 1-second intervals
+type tickerThread struct {
+	Ctx context.Context
+	CancelCtx context.CancelFunc
+	Ingester BroadcastIngester
+	Ticker Ticker
+	Date civil.Date
+}
+
+func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
+	ctx, cancel := context.WithCancel(context.Background())	
+
+	return &tickerThread{
+		Ctx: ctx,
+		CancelCtx: cancel,
+		Ingester: owner,
+		Ticker: ticker,
+		Date: date,
+	}
+}
+
+func (t *tickerThread) Shutdown() {
+	// Shutdown child components
+
+	// Shutdown self
+	t.CancelCtx()
+}
+
+func (t *tickerThread) Start() {
 	ticker := time.NewTicker(1 * time.Second)
 
-	// 2. Always clean up the ticker when the function exits
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-t.Shutdown:
-			// Exit immediately when signaled
+		case <-t.Ctx.Done():
 			return
 
 		case <-ticker.C:
-			// 3. This block only triggers once every second
 			dummyMsg := BroadcastMessage{
 				Ticker: t.Ticker,
 				Data:   DummyAggregateBar(string(t.Ticker)),
 			}
 
-			// Send to the broadcast channel
-			// (Consider using a non-blocking send here if you have many listeners)
-			t.ingester.BroadcastMessagePipe() <- dummyMsg
+			t.Ingester.BroadcastMessagePipe() <- dummyMsg
 		}
 	}
 }

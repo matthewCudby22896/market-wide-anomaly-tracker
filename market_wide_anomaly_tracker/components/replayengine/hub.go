@@ -6,27 +6,28 @@ import (
 	"maps"
 	"slices"
 	"sync"
-)
 
+	"cloud.google.com/go/civil"
+)
 
 type HubReqType int
 
 const (
 	REGISTER HubReqType = iota
-	UNREGISTER 
-	SUB	
+	UNREGISTER
+	SUB
 	UNSUB
 )
 
 type hubRequest struct {
-	Type HubReqType
+	Type    HubReqType
 	Client  *client
 	Tickers []Ticker
 }
 
 // Hub functionality exposed to dataCoordinator
 type DataAvailabilityConsumer interface {
-	DataReadyPipe() chan<- DataReadyMsg
+	SignalDataReady(ticker Ticker, date civil.Date)
 }
 
 type HubClientInterface interface {
@@ -49,60 +50,48 @@ type Hub interface {
 
 	RegisterClient(c *client)
 	UnregisterClient(c *client)
-	SubscribePipe() chan<- SubscriptionRequest
-	UnsubPipe() chan<- SubscriptionRequest
+	RequestSubscription(c *client, tickers []string)
+	RequestUnsub(c *client, tickers []string)
 }
 
 // hub implements the Hub interface
 type hub struct {
-	// Rework 
-	Ctx context.Context
+	// Rework
+	Ctx       context.Context
 	CancelCtx context.CancelFunc
-	wg sync.WaitGroup
+	wg        sync.WaitGroup
 
 	requestsChan chan hubRequest
-	// End Rework
-	
-	register    chan *Client
-	unregister  chan *Client
-	subscribe   chan SubscriptionRequest
-	unsubscribe chan SubscriptionRequest
 
 	broadcast chan BroadcastMessage
 
-	// Essentially a Set of the currently `registered` clients
-	clients map[*client]struct{}
-	// e.g. "APPL" to slice of Client's subscribed to APPL
-	tickerToClient map[Ticker]map[*client]struct{}
-	// For the hub to maintain a reference to each of it's owned TickerThreads
-	ownedTickerThreads map[Ticker]*TickerThread
-	// Used when a client has disconnected and the Hub needs to unsub the client from all it's subbed tickers
+	clients               map[*client]struct{} // A 'Set' of the registered clients
+	tickerToClient        map[Ticker]map[*client]struct{}
+	ownedTickerThreads    map[Ticker]*TickerThread
 	clientToSubbedTickers map[*client]map[Ticker]struct{}
 
-	dataReadyChan chan DataReadyMsg
-
+	// End Rework
+	dataReadyChan chan dataReadyMsg
 }
 
 // INIT METHOD
 func NewHub() *hub {
-	return &hub{
-		register:      make(chan *Client),
-		unregister:    make(chan *Client),
-		subscribe:     make(chan SubscriptionRequest),
-		unsubscribe:   make(chan SubscriptionRequest),
-		broadcast:     make(chan BroadcastMessage, 1024), // Buffer high-volume data
-		shutdownChan:  make(chan struct{}),
-		dataReadyChan: make(chan DataReadyMsg),
+	ctx, cancel := context.WithCancel(context.Background())
 
-		// Maps: Must be initialized via make() or they will panic on first use.
+	return &hub{
+		Ctx:                   ctx,
+		CancelCtx:             cancel,
+		wg:                    sync.WaitGroup{},
+		requestsChan:          make(chan hubRequest, 1024),
+		broadcast:             make(chan BroadcastMessage, 1024),
 		clients:               make(map[*client]struct{}),
-		tickerToClient:        make(map[Ticker]map[*Client]struct{}),
+		tickerToClient:        make(map[Ticker]map[*client]struct{}),
+		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
 		ownedTickerThreads:    make(map[Ticker]*TickerThread),
-		clientToSubbedTickers: make(map[*Client]map[Ticker]struct{}),
 	}
 }
 
-func (h *hub) Shutdown() {	
+func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
 
 	// Then shutdown itself
@@ -115,15 +104,15 @@ func (h *hub) Start() {
 		defer h.wg.Done()
 		for {
 			select {
-			case <- h.Ctx.Done():
+			case <-h.Ctx.Done():
 				return
 
-			case msg := <- h.broadcast:
+			case msg := <-h.broadcast:
 				h.handleBroadcast(msg)
 
 			case req := <-h.requestsChan:
 				switch req.Type {
-				case REGISTER:	
+				case REGISTER:
 					h.handleRegister(req.Client)
 				case UNREGISTER:
 					h.handleUnregister(req.Client)
@@ -132,68 +121,50 @@ func (h *hub) Start() {
 				case UNSUB:
 					h.handleUnsub(req.Client, req.Tickers)
 				}
+			case sig := <-h.dataReadyChan:
+				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
+					// Init ticker thread
+
+					// Add to map
+
+					// Start
+				}
 			}
 		}
 	}()
 }
 
-
-func (h *hub) Start() {
-	for {
-		select {
-		case <-h.Ctx.Done():
-			return
-		
-		// Handle incoming broadcast message from ticker threads
-		case msg := <-h.broadcast:
-			h.handleBroadcast(msg)
-
-		// TODO: Shift all 4 chans into one (for determinism)
-		// Handle Client's request to subscribe
-		case subReq := <-h.subscribe:
-			h.handleSub(subReq)
-
-		// Handle Client's request to unsubscribe
-		case subReq := <-h.unsubscribe:
-			h.handleUnsub(subReq)
-
-		// Client registration
-		case client := <-h.register:
-			h.handleRegister(client)
-
-		// Client unregistration
-		case client := <-h.unregister:
-			h.handleUnregister(client)
-		}
+func (h *hub) RegisterClient(c *client) {
+	h.requestsChan <- hubRequest{
+		Type:   REGISTER,
+		Client: c,
 	}
 }
 
-// ClientSignallingAPI interface implementation
-func (h *hub) RegisterPipe() chan<- *Client   { return h.register }
-func (h *hub) UnregisterPipe() chan<- *Client { return h.unregister }
-func (h *hub) SubscribePipe() chan<- SubscriptionRequest {
-	return h.subscribe
+func (h *hub) UnregisterClient(c *client) {
+	h.requestsChan <- hubRequest{
+		Type:   REGISTER,
+		Client: c,
+	}
 }
-func (h *hub) UnsubPipe() chan<- SubscriptionRequest {
-	return h.unsubscribe
+
+func (h *hub) RequestSub(c *client, tickers []Ticker) {
+	h.requestsChan <- hubRequest{SUB, c, tickers}
+}
+
+func (h *hub) RequestUnsub(c *client, tickers []Ticker) {
+	h.requestsChan <- hubRequest{UNSUB, c, tickers}
+}
+
+func (h *hub) SignalDataReady(ticker Ticker, date civil.Date) {
+	h.dataReadyChan <- dataReadyMsg{ticker, date}
 }
 
 // DataAvailabilityConsumer interface implementation
-func (h *hub) DataReadyPipe() chan<- DataReadyMsg { return h.dataReadyChan }
+func (h *hub) DataReadyPipe() chan<- dataReadyMsg { return h.dataReadyChan }
 
 // BroadcastIngester interface implementation
 func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
-
-// Hub interface implementation
-// func (h *hub) SignalShutdownPipe() chan<- struct{} { return h.shutdownChan }
-
-
-// func (h *hub) Shutdown() {
-// 	// Shutdown child ticker threads
-// 	for _, tickerThread := range h.ownedTickerThreads {
-// 		tickerThread.Shutdown <- struct{}{}
-// 	}
-// }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
 	// Fan-out msg to subscribed clients
@@ -266,20 +237,20 @@ func (h *hub) handleUnregister(c *client) {
 	fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
 }
 
-func (h *hub) startTickerThread(ticker Ticker) {
-	tickerOwner := TickerThread{
-		ingester: h,
-		Shutdown: make(chan struct{}),
-		Ticker:   ticker,
-	}
+// func (h *hub) startTickerThread(ticker Ticker) {
+// 	tickerOwner := TickerThread{
+// 		ingester: h,
+// 		Shutdown: make(chan struct{}),
+// 		Ticker:   ticker,
+// 	}
 
-	go tickerOwner.RunThread()
+// 	go tickerOwner.RunThread()
 
-	h.ownedTickerThreads[ticker] = &tickerOwner
-}
+// 	h.ownedTickerThreads[ticker] = &tickerOwner
+// }
 
-func (h *hub) killTickerThread(ticker Ticker) {
-	thread := h.ownedTickerThreads[ticker]
-	thread.Shutdown <- struct{}{}
-	delete(h.ownedTickerThreads, ticker)
-}
+// func (h *hub) killTickerThread(ticker Ticker) {
+// 	thread := h.ownedTickerThreads[ticker]
+// 	thread.Shutdown <- struct{}{}
+// 	delete(h.ownedTickerThreads, ticker)
+// }

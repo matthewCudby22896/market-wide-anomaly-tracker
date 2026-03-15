@@ -112,14 +112,3 @@ func (c *client) HandleSub(tickers []string) {
 func (c *client) HandleUnsub(tickers []string) {
 	c.HubClientInterface.UnsubPipe() <- *c.createSubRequest(tickers)
 }
-
-func (c *client) createSubRequest(tickers []string) *SubscriptionRequest {
-	typedTickers := make([]Ticker, 0, len(tickers))
-	for _, t := range tickers {
-		typedTickers = append(typedTickers, Ticker(t))
-	}
-	return &SubscriptionRequest{
-		Client:  c,
-		Tickers: typedTickers,
-	}
-}
