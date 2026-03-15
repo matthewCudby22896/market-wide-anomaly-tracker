@@ -31,8 +31,8 @@ type DataAvailabilityConsumer interface {
 }
 
 type HubClientInterface interface {
-	SubscribePipe() chan<- SubscriptionRequest
-	UnsubPipe() chan<- SubscriptionRequest
+	RequestSub(c *client, tickers []Ticker)
+	RequestUnsub(c *client, tickers []Ticker)
 	UnregisterClient(c *client)
 }
 
@@ -49,9 +49,6 @@ type Hub interface {
 	BroadcastIngester
 
 	RegisterClient(c *client)
-	UnregisterClient(c *client)
-	RequestSubscription(c *client, tickers []string)
-	RequestUnsub(c *client, tickers []string)
 }
 
 // hub implements the Hub interface
@@ -67,7 +64,7 @@ type hub struct {
 
 	clients               map[*client]struct{} // A 'Set' of the registered clients
 	tickerToClient        map[Ticker]map[*client]struct{}
-	ownedTickerThreads    map[Ticker]*TickerThread
+	ownedTickerThreads    map[Ticker]*tickerThread
 	clientToSubbedTickers map[*client]map[Ticker]struct{}
 
 	// End Rework
@@ -89,7 +86,7 @@ func NewHub() *hub {
 		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
 		ownedTickerThreads:    make(map[Ticker]*TickerThread),
 	}
-}
+	RequestUnsub(c *client, tickers []Ticker)}
 
 func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
@@ -105,7 +102,7 @@ func (h *hub) Start() {
 		for {
 			select {
 			case <-h.Ctx.Done():
-				return
+				returnn
 
 			case msg := <-h.broadcast:
 				h.handleBroadcast(msg)
@@ -124,10 +121,13 @@ func (h *hub) Start() {
 			case sig := <-h.dataReadyChan:
 				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
 					// Init ticker thread
+					thread := NewTickerThread(h, sig.ticker, sig.date)
 
 					// Add to map
+					h.ownedTickerThreads[sig.ticker] = thread
 
 					// Start
+					thread.Start()
 				}
 			}
 		}
@@ -237,20 +237,8 @@ func (h *hub) handleUnregister(c *client) {
 	fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
 }
 
-// func (h *hub) startTickerThread(ticker Ticker) {
-// 	tickerOwner := TickerThread{
-// 		ingester: h,
-// 		Shutdown: make(chan struct{}),
-// 		Ticker:   ticker,
-// 	}
-
-// 	go tickerOwner.RunThread()
-
-// 	h.ownedTickerThreads[ticker] = &tickerOwner
-// }
-
-// func (h *hub) killTickerThread(ticker Ticker) {
-// 	thread := h.ownedTickerThreads[ticker]
-// 	thread.Shutdown <- struct{}{}
-// 	delete(h.ownedTickerThreads, ticker)
-// }
+func (h *hub) killTickerThread(ticker Ticker) {
+	thread := h.ownedTickerThreads[ticker]
+	thread.AsynShutdown()
+	delete(h.ownedTickerThreads, ticker)
+}

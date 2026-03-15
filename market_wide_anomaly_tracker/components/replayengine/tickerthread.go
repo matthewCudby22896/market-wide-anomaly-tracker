@@ -9,6 +9,7 @@ import (
 
 type TickerThread interface {
 	LifeCycle
+	AsynShutdown()
 }
 
 type tickerThread struct {
@@ -31,10 +32,18 @@ func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
 	}
 }
 
+// TODO: Do I need both
 func (t *tickerThread) Shutdown() {
 	// Shutdown child components
 
 	// Shutdown self
+	t.CancelCtx()
+}
+
+func (t *tickerThread) AsynShutdown() {
+	// Trigger async shutdown of child components
+
+	// Trigger shutdown of self
 	t.CancelCtx()
 }
 
@@ -49,7 +58,7 @@ func (t *tickerThread) Start() {
 			return
 
 		case <-ticker.C:
-			dummyMsg := BroadcastMessage{
+			dummyMsg := BroadcastMessage,{
 				Ticker: t.Ticker,
 				Data:   DummyAggregateBar(string(t.Ticker)),
 			}
