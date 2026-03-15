@@ -1,5 +1,7 @@
 package replayengine
 
+import "context"
+
 const replayEnginerServerSocket = ":8080"
 
 type Ticker string
@@ -19,6 +21,14 @@ type BroadcastMessage struct {
 	Data   any
 }
 
+type LifeCycle interface {
+	// 1. Starts the component's main loop
+	Start()
+
+	// 2. Signals to the component to stop and BLOCKS until finished.
+	Shutdown()
+}
+
 type AggregateBar struct {
 	Event   string  `json:"ev"` // Event Type (e.g., "AM")
 	Symbol  string  `json:"sym"`
@@ -32,7 +42,7 @@ type AggregateBar struct {
 	EndMS   int64   `json:"e"` // Ending Unix Epoch (milliseconds)
 }
 
-func DummyAggregateBar(ticker string) AggregateBar{
+func DummyAggregateBar(ticker string) AggregateBar {
 	bar := AggregateBar{
 		Event:   "AM",
 		Symbol:  ticker,

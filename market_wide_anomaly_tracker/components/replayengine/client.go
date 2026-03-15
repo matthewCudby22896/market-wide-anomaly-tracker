@@ -3,54 +3,71 @@ package replayengine
 import (
 	"context"
 	"fmt"
+	"os"
+	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
 
-type Client struct {
-	Ctx        context.Context
-	CancelCtx  context.CancelFunc
+
+type Client interface {
+	LifeCycle
+	Outbox() <-chan any
+}
+
+type client struct {
 	Connection *websocket.Conn
 
-	// TODO: Remove and replace with needed pipes
-	Hub      *hub
-	Outbox   chan any      // For sending
-	Shutdown chan struct{} // Triggered by Hub when shutting down the server
+	ClientSignallingAPI 
+	outbox   chan any 
 
-	// For sending (un)subscription requests to the Hub
-	subscribe   chan<- SubscriptionRequest
-	unsubscribe chan<- SubscriptionRequest
+	context context.Context
+	cancelContext context.CancelFunc
+
+	wg sync.WaitGroup
 }
 
-func (c *Client) StartClient() {
-	// Send the Hub a reference of itself to register
-	c.Hub.register <- c
+func NewClient(c *websocket.Conn, hub Hub) *client{
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	return &client{
+		Connection: c,	
+		ClientSignallingAPI: hub,
+		Outbox: make(chan any, 1024),	
+		context: ctx,
+		cancelContext: cancel,
+		wg: sync.WaitGroup{},
+	}
+}
 
-	// Unregister the client when the connection closes
-	defer c.UnregisterFromHub()
+func (c *client) Shutdown() {
+	c.cancelContext()
+	c.wg.Wait()
+}
 
-	// Start go routine to listen for shutdown (shutdown on context closure)
-	go c.ListenForShutdown()
-
-	// Start SENDER go routine
-	go c.SenderThread()
-
-	// Start LISTENER go routine
+func (c *client) Start() {
+	c.wg.Add(3)
 	go c.ListenerThread()
-
-	<-c.Ctx.Done()
+	go c.SenderThread()
+	// This will ensure that the client is always unregistered from the Hub 
+	// when the client disconnects
+	go func() {
+		defer c.wg.Done()
+		<-c.context.Done()
+		// TODO: Unregister itself from the Hub
+		return	
+	}()
 }
 
-// Exits on either:
-//   - Cancellation of ctx
-func (c *Client) ListenerThread() {
+func (c *client) ListenerThread() {
+	defer c.wg.Done()
 	for {
 		var v Message
-		err := wsjson.Read(c.Ctx, c.Connection, &v)
+		err := wsjson.Read(c.context, c.Connection, &v)
 		if err != nil {
 			fmt.Println("Reader error/disconnect:", err)
-			c.CancelCtx()
+			c.Shutdown()
 			return
 		}
 
@@ -69,15 +86,14 @@ func (c *Client) ListenerThread() {
 	}
 }
 
-// Exits on either:
-//   - Cancellation of ctx
-func (c *Client) SenderThread() {
+func (c *client) SenderThread() {
+	defer c.wg.Done()
 	for {
 		select {
-		case <-c.Ctx.Done():
+		case <-c.context.Done():
 			return
-		case msg := <-c.Outbox:
-			err := wsjson.Write(c.Ctx, c.Connection, msg)
+		case msg := <-c.outbox:
+			err := wsjson.Write(c.context, c.Connection, msg)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -85,38 +101,19 @@ func (c *Client) SenderThread() {
 	}
 }
 
-// Exits on either:
-//   - Cancellation of ctx from client closing connection
-//   - Shutdown signal sent from parent Hub -> triggering ctx cancellation
-func (c *Client) ListenForShutdown() {
-	select {
-	case <-c.Shutdown:
-		// The hub has signalled for the client connection to be shutdown
-		c.CancelCtx()
-
-	case <-c.Ctx.Done():
-		// The user disconnected normally
-		return
-	}
+func (c *client) Outbox() chan<- any {	
+	return c.outbox
 }
 
-func (c *Client) HandleSub(tickers []string) {
-	c.subscribe <- *c.createSubRequest(tickers)
+func (c *client) HandleSub(tickers []string) {
+	c.ClientSignallingAPI.SubscribePipe() <- *c.createSubRequest(tickers)
 }
 
-func (c *Client) HandleUnsub(tickers []string) {
-	c.unsubscribe <- *c.createSubRequest(tickers)
+func (c *client) HandleUnsub(tickers []string) {
+	c.ClientSignallingAPI.UnsubPipe() <- *c.createSubRequest(tickers)
 }
 
-func (c *Client) UnregisterFromHub() {
-	select {
-	// If Hub is listening send reference of self to unregister
-	case c.Hub.unregister <- c:
-	case <-c.Shutdown:
-	}
-}
-
-func (c *Client) createSubRequest(tickers []string) *SubscriptionRequest {
+func (c *client) createSubRequest(tickers []string) *SubscriptionRequest {
 	typedTickers := make([]Ticker, 0, len(tickers))
 	for _, t := range tickers {
 		typedTickers = append(typedTickers, Ticker(t))

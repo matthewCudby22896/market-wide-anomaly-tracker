@@ -13,8 +13,8 @@ type DataAvailabilityConsumer interface {
 
 // Hub functionality exposed to Clients
 type ClientSignallingAPI interface {
-	RegisterPipe() chan<- *Client
-	UnregisterPipe() chan<- *Client
+	RegisterPipe() chan<- *client
+	UnregisterPipe() chan<- *client
 	SubscribePipe() chan<- SubscriptionRequest
 	UnsubPipe() chan<- SubscriptionRequest
 }
@@ -25,10 +25,10 @@ type BroadcastIngester interface {
 }
 
 type Hub interface {
+	LifeCycle
 	ClientSignallingAPI
 	DataAvailabilityConsumer
 	BroadcastIngester
-	SignalShutdownPipe() chan<- struct{}
 }
 
 // hub implements the Hub interface
@@ -86,14 +86,14 @@ func (h *hub) UnsubPipe() chan<- SubscriptionRequest {
 // DataAvailabilityConsumer interface implementation
 func (h *hub) DataReadyPipe() chan<- DataReadyMsg { return h.dataReadyChan }
 
-// TickerThreadAPI interface implementation
+// BroadcastIngester interface implementation
 func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
 
 // Hub interface implementation
 func (h *hub) SignalShutdownPipe() chan<- struct{} { return h.shutdownChan }
 
 // CORE LOOP
-func (h *hub) Run() {
+func (h *hub) Start() {
 	for {
 		select {
 		case <-h.shutdownChan:
@@ -123,15 +123,10 @@ func (h *hub) Run() {
 	}
 }
 
-func (h *hub) shutdown() {
+func (h *hub) Shutdown() {
 	// Shutdown child ticker threads
 	for _, tickerThread := range h.ownedTickerThreads {
 		tickerThread.Shutdown <- struct{}{}
-	}
-	// Trigger shutdown of clients
-	for client := range maps.Keys(h.clients) {
-		close(client.Shutdown)
-		delete(h.clients, client)
 	}
 }
 

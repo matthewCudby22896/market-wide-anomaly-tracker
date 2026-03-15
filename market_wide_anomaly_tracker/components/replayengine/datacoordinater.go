@@ -23,25 +23,26 @@ const (
 )
 
 type DataAvailabilityProvider interface {
-	IsReady(t Ticker, d civil.Date) bool
+	IsReady(t Ticker, d civil.Date) DataAvailability
 }
 
 // Functionality exposed to the DataFetcher
-type DataInfoConsumer interface {
+type DataStateStatusConsumer interface {
 	// For the DataFetcher to inform the DataCoordinater
 	SignalDataReady(ticker, date civil.Date)
 }
 
 type DataCoordinater interface {
+	LifeCycle
 	DataAvailabilityProvider
-	DataInfoConsumer
+	DataStateStatusConsumer
 }
 
 // dataCoordinater implements the DataCoordinater interface
 type dataCoordinater struct {
 	shutdownChan chan struct{}
 
-	statusMap map[Ticker]DataAvailability
+	statusMap map[string]map[Ticker]DataAvailability
 
 	// Internal ref to the dataFetcher
 	dataFetcher DataFetcher
@@ -49,24 +50,47 @@ type dataCoordinater struct {
 
 // INIT METHOD
 func NewDataCoordinater() *dataCoordinater {
-	return &dataCoordinater{
-	}
+	// TODO
+	return &dataCoordinater{}
 }
 
 // CORE LOOP
-func (d *dataCoordinater) Run() {
+func (c *dataCoordinater) Start() {
 	for {
-		select{
-		case <-d.shutdownChan:
-			d.shutdown()
-			return
+		select {
 		default:
 			continue
 		}
 	}
 }
 
-//SHUTDOWN
-func (d *dataCoordinater) shutdown() {
+// SHUTDOWN
+func (c *dataCoordinater) Shutdown() {
+	// TODO
 }
 
+// DataAvailabilityProvider interface implementation
+func (c *dataCoordinater) IsReady(t Ticker, d civil.Date) DataAvailability {
+
+	//statusMap map[string]map[Ticker]DataAvailability
+	dateStr := d.String()
+	var dayMap map[Ticker]DataAvailability
+	var ok bool
+	if dayMap, ok = c.statusMap[dateStr]; !ok {
+		c.statusMap[dateStr] = make(map[Ticker]DataAvailability)
+		dayMap = c.statusMap[dateStr]
+	}
+
+	if dayMap[t] == READY {
+		return READY
+	}
+	c.dataFetcher.RequestHydation(t, d)
+
+	dayMap[t] = HYDRATING
+
+}
+
+// DataStateStatusConsumer
+func (c *dataCoordinater) SignalDataReady(ticker, date civil.Date) {
+
+}
