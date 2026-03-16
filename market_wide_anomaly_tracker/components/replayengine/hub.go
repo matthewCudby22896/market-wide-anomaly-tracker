@@ -2,7 +2,6 @@ package replayengine
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -100,12 +99,7 @@ func (h *hub) Shutdown() {
 	// Then shutdown itself
 	h.CancelCtx()
 	h.wg.Wait()
-	h.logger.Info("Shutdown")
-}
-
-func (h *hub) Printf(s string, a ...any) {
-	msg := fmt.Sprintf(s, a...)
-	fmt.Printf("[Hub] %s\n", msg)
+	h.logger.Info("shutdown")
 }
 
 func (h *hub) Start() {
@@ -138,7 +132,7 @@ func (h *hub) Start() {
 			}
 		}
 	}()
-	fmt.logger.("Started.")
+	h.logger.Info("started.")
 }
 
 func (h *hub) RegisterClient(c *client) {
@@ -184,7 +178,7 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 	for _, ticker := range tickers {
 
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
-			fmt.Printf("First subscriber for %s. Starting ticker thread.\n", ticker)
+			h.logger.Info("first subscriber for %s. Starting ticker thread.", ticker)
 
 			if h.DataAvailabilityProvider.IsReady(ticker, civil.DateOf(time.Now())) == READY {
 				// If it is, send to data ready chan
@@ -206,14 +200,14 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 		}
 
 		if _, ok := h.tickerToClient[ticker][c]; ok {
-			fmt.Printf("Client already subscribed to %s. Ignoring subscription request.", ticker)
+			h.logger.Info("client already subscribed to %s. Ignoring subscription request.", ticker)
 			continue
 		}
 
 		h.tickerToClient[ticker][c] = struct{}{}
 		h.clientToSubbedTickers[c][ticker] = struct{}{}
 
-		fmt.Printf("Client subscribed to %s, total %d\n", ticker, len(h.tickerToClient[ticker]))
+		h.logger.Info("client subscribed to %s, total %d", ticker, len(h.tickerToClient[ticker]))
 	}
 }
 
@@ -223,19 +217,19 @@ func (h *hub) handleUnsub(c *client, tickers []Ticker) {
 			delete(clients, c)
 
 			if len(clients) == 0 {
-				fmt.Printf("Last subscriber left for %s. Killing ticker thread.\n", ticker)
+				h.logger.Info("last subscriber left for %s. Killing ticker thread.", ticker)
 				h.killTickerThread(ticker)
 				delete(h.tickerToClient, ticker)
 			}
 
-			fmt.Printf("Client unsubscribed from %s, total %d\n", ticker, len(h.tickerToClient[ticker]))
+			h.logger.Info("a client unsubscribed from %s, total %d", ticker, len(h.tickerToClient[ticker]))
 		}
 	}
 }
 
 func (h *hub) handleRegister(c *client) {
 	h.clients[c] = struct{}{}
-	fmt.Printf("A client has been registered, total: %d\n", len(h.clients))
+	h.logger.Info("a client has been registered, total: %d", len(h.clients))
 }
 
 func (h *hub) handleUnregister(c *client) {
@@ -248,7 +242,7 @@ func (h *hub) handleUnregister(c *client) {
 
 	delete(h.clients, c)
 
-	fmt.Printf("A client has been unregistered, total: %d\n", len(h.clients))
+	h.logger.Info("a client has been unregistered, total: %d", len(h.clients))
 }
 
 func (h *hub) killTickerThread(ticker Ticker) {
@@ -258,7 +252,7 @@ func (h *hub) killTickerThread(ticker Ticker) {
 }
 
 func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) {
-	h.Printf("Starting ticker thread for %s", ticker)
+	h.logger.Info("starting ticker thread for %s", ticker)
 	// Init ticker thread
 	thread := NewTickerThread(h, ticker, date)
 

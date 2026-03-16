@@ -53,7 +53,7 @@ func NewClient(c *websocket.Conn, hub Hub) *client {
 func (c *client) Shutdown() {
 	c.cancelContext()
 	c.wg.Wait()
-	c.logger.Info("Shutdown.")
+	c.logger.Info("shutdown.")
 }
 
 func (c *client) Start() {
@@ -68,10 +68,10 @@ func (c *client) Start() {
 	go func(c *client) {
 		defer c.wg.Done()
 		<-c.context.Done()
-		c.logger.Info("Requesting deregistration")
+		c.logger.Info("requesting deregistration")
 		c.HubClientInterface.UnregisterClient(c) // Unregister self
 	}(c)
-	c.logger.Info("Started.")
+	c.logger.Info("started.")
 }
 
 func (c *client) ListenerThread() {
@@ -79,23 +79,26 @@ func (c *client) ListenerThread() {
 	for {
 		var v Message
 		err := wsjson.Read(c.context, c.Connection, &v)
+
 		if err != nil {
-			c.logger.Info("Reader error/disconnect: %v", err)
-			go c.Shutdown() // This feels janky
+			status := websocket.CloseStatus(err)
+			if status == -1 {
+				c.logger.Info("client gracefully disconnected")
+			} else {
+				c.logger.Info("client read err: %v", err)
+			}
+			go c.Shutdown()
 			return
 		}
-
-		c.logger.Info("Received: %#v\n", v)
 
 		switch v.Action {
 		case "subscribe":
 			c.HubClientInterface.RequestSub(c, toTypedTicker(v.Tickers))
-
 		case "unsubscribe":
 			c.HubClientInterface.RequestUnsub(c, toTypedTicker(v.Tickers))
-
 		default:
-			fmt.Println("Unrecognised `action` field : ", v.Action)
+
+			c.logger.Info("unrecognised `action` field : ", v.Action)
 		}
 	}
 }

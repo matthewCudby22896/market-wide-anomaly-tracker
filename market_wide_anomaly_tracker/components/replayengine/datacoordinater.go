@@ -71,11 +71,11 @@ func (c *dataCoordinater) Start() {
 			}
 		}
 	}()
-	c.logger.Info("Started.")
+	c.logger.Info("started.")
 }
 
 func (c *dataCoordinater) Shutdown() {
-	c.logger.Info("Shutdown.")
+	c.logger.Info("shutdown.")
 }
 
 // DataAvailabilityProvider interface implementation

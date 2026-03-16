@@ -2,6 +2,8 @@ package replayengine
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -13,22 +15,26 @@ type TickerThread interface {
 }
 
 type tickerThread struct {
-	Ctx context.Context
+	Ctx       context.Context
 	CancelCtx context.CancelFunc
-	Ingester BroadcastIngester
-	Ticker Ticker
-	Date civil.Date
+	wg        sync.WaitGroup
+	Ingester  BroadcastIngester
+	Ticker    Ticker
+	Date      civil.Date
+	logger    ComponentLogger
 }
 
 func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
-	ctx, cancel := context.WithCancel(context.Background())	
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &tickerThread{
-		Ctx: ctx,
+		Ctx:       ctx,
 		CancelCtx: cancel,
-		Ingester: owner,
-		Ticker: ticker,
-		Date: date,
+		wg:        sync.WaitGroup{},
+		Ingester:  owner,
+		Ticker:    ticker,
+		Date:      date,
+		logger:    NewLogger(fmt.Sprintf("%s TickerThread", ticker)),
 	}
 }
 
@@ -38,17 +44,19 @@ func (t *tickerThread) Shutdown() {
 
 	// Shutdown self
 	t.CancelCtx()
+
+	t.wg.Wait()
+	t.logger.Info("shutdown")
 }
 
 func (t *tickerThread) AsynShutdown() {
-	// Trigger async shutdown of child components
-
-	// Trigger shutdown of self
-	t.CancelCtx()
+	go t.Shutdown()
 }
 
 func (t *tickerThread) Start() {
+	t.wg.Add(1)
 	go func() {
+		defer t.wg.Done()
 		ticker := time.NewTicker(1 * time.Second)
 
 		defer ticker.Stop()

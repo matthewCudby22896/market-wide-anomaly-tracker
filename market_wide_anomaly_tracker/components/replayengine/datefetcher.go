@@ -48,13 +48,13 @@ func (f *dataFetcher) Start() {
 			}
 		}
 	}()
-	f.logger.Info("Started.")
+	f.logger.Info("started.")
 }
 
 func (f *dataFetcher) Shutdown() {
 	f.CancelCtx()
 	f.wg.Wait()
-	f.logger.Info("Shutdown.")
+	f.logger.Info("shutdown.")
 }
 
 func (f *dataFetcher) RequestHydation(ticker Ticker, date civil.Date) {
