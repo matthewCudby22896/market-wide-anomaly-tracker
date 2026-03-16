@@ -180,7 +180,7 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
 			h.logger.Info("first subscriber for %s. Starting ticker thread.", ticker)
 
-			if h.DataAvailabilityProvider.IsReady(ticker, civil.DateOf(time.Now())) == READY {
+			if h.DataAvailabilityProvider.IsReady(ticker, civil.DateOf(time.Now())){
 				// If it is, send to data ready chan
 				h.dataReadyChan <- dataReadyMsg{
 					ticker: ticker,

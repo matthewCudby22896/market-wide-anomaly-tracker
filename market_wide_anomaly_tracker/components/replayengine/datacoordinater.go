@@ -2,6 +2,7 @@ package replayengine
 
 import (
 	"context"
+	"sync"
 
 	"cloud.google.com/go/civil"
 )
@@ -26,8 +27,16 @@ const (
 	HYDRATING
 )
 
+type dataQuery struct {
+	ticker  Ticker
+	dateStr string
+}
+
+type stateNotification struct {
+}
+
 type DataAvailabilityProvider interface {
-	IsReady(t Ticker, d civil.Date) DataAvailability
+	IsReady(t Ticker, d civil.Date) bool
 }
 
 // Functionality exposed to the DataFetcher
@@ -47,10 +56,13 @@ type dataCoordinater struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 
-	statusMap map[string]map[Ticker]DataAvailability
+	statusMapMu sync.Mutex
+	statusMap   map[string]map[Ticker]DataAvailability
 
-	dataFetcher DataFetcher
-	logger      ComponentLogger
+	logger ComponentLogger
+	db     Database
+
+	dataQueryChan chan dataQuery
 }
 
 // TODO:
@@ -64,6 +76,15 @@ func (c *dataCoordinater) Start() {
 	go func() {
 		for {
 			select {
+			case query := <-c.dataQueryChan:
+				c.statusMapMu.Lock()
+				state := c.statusMap[query.dateStr][query.ticker]
+				if !(state == READY || state == HYDRATING) {
+					go c.HydrationTask(query.dateStr, query.ticker)
+					c.statusMap[query.dateStr][query.ticker] = HYDRATING
+				}
+				c.statusMapMu.Unlock()
+
 			case <-c.Ctx.Done():
 				return
 			default:
@@ -78,27 +99,30 @@ func (c *dataCoordinater) Shutdown() {
 	c.logger.Info("shutdown.")
 }
 
+func (c *dataCoordinater) HydrationTask(dateStr string, ticker Ticker) {
+
+}
+
 // DataAvailabilityProvider interface implementation
-func (c *dataCoordinater) IsReady(t Ticker, d civil.Date) DataAvailability {
-	// TODO:
+func (c *dataCoordinater) IsReady(t Ticker, d civil.Date) bool {
+	dateStr := d.String()
+	if _, ok := c.statusMap[dateStr]; !ok {
+		c.statusMap[dateStr] = make(map[Ticker]DataAvailability)
+	}
 
-	return READY
+	// If READY immediately return
+	if c.statusMap[dateStr][t] == READY {
+		return true
+	}
 
-	//statusMap map[string]map[Ticker]DataAvailability
-	// dateStr := d.String()
-	// var dayMap map[Ticker]DataAvailability
-	// var ok bool
-	// if dayMap, ok = c.statusMap[dateStr]; !ok {
-	// 	c.statusMap[dateStr] = make(map[Ticker]DataAvailability)
-	// 	dayMap = c.statusMap[dateStr]
-	// }
+	// IF not ready, do something that triggers:
 
-	// if dayMap[t] == READY {
-	// 	return READY
-	// }
-	// c.dataFetcher.RequestHydation(t, d)
+	// query the DB to see if we already have the required data
 
-	// dayMap[t] = HYDRATING
+	// IF yes, then signal that the data is ready
+
+	// IF no, spawn a data fetcher thread to go and fetch & store the data from the external API
+
 }
 
 // DataStateStatusConsumer
