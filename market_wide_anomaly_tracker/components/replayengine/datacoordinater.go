@@ -1,6 +1,10 @@
 package replayengine
 
-import "cloud.google.com/go/civil"
+import (
+	"context"
+
+	"cloud.google.com/go/civil"
+)
 
 /*
 PLAN: Data Coordinater
@@ -40,33 +44,38 @@ type DataCoordinater interface {
 
 // dataCoordinater implements the DataCoordinater interface
 type dataCoordinater struct {
-	shutdownChan chan struct{}
+	Ctx       context.Context
+	CancelCtx context.CancelFunc
 
 	statusMap map[string]map[Ticker]DataAvailability
 
-	// Internal ref to the dataFetcher
 	dataFetcher DataFetcher
+	logger      ComponentLogger
 }
 
-// INIT METHOD
+// TODO:
 func NewDataCoordinater() *dataCoordinater {
-	// TODO
-	return &dataCoordinater{}
-}
-
-// CORE LOOP
-func (c *dataCoordinater) Start() {
-	for {
-		select {
-		default:
-			continue
-		}
+	return &dataCoordinater{
+		logger: NewLogger("DataCoordinator"),
 	}
 }
 
-// SHUTDOWN
+func (c *dataCoordinater) Start() {
+	go func() {
+		for {
+			select {
+			case <-c.Ctx.Done():
+				return
+			default:
+				continue
+			}
+		}
+	}()
+	c.logger.Info("Started.")
+}
+
 func (c *dataCoordinater) Shutdown() {
-	// TODO
+	c.logger.Info("Shutdown.")
 }
 
 // DataAvailabilityProvider interface implementation

@@ -9,6 +9,8 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
+var clientID int = 0
+
 type Client interface {
 	LifeCycle
 	Outbox() <-chan any
@@ -25,38 +27,51 @@ type client struct {
 	cancelContext context.CancelFunc
 
 	wg sync.WaitGroup
+
+	logger ComponentLogger
 }
 
 func NewClient(c *websocket.Conn, hub Hub) *client {
+	defer func() {
+		clientID += 1
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &client{
-		Connection:          c,
-		HubClientInterface:  hub,
-		outbox:              make(chan any, 1024),
-		context:             ctx,
-		cancelContext:       cancel,
-		wg:                  sync.WaitGroup{},
+		Connection:         c,
+		HubClientInterface: hub,
+		outbox:             make(chan any, 1024),
+		context:            ctx,
+		cancelContext:      cancel,
+		wg:                 sync.WaitGroup{},
+		logger:             NewLogger(fmt.Sprintf("Client %d", clientID)),
 	}
+
 }
 
 func (c *client) Shutdown() {
 	c.cancelContext()
 	c.wg.Wait()
+	c.logger.Info("Shutdown.")
 }
 
 func (c *client) Start() {
-	c.wg.Add(3)
+	c.wg.Add(1)
 	go c.ListenerThread()
+	c.wg.Add(1)
 	go c.SenderThread()
 
 	// This will ensure that the client is always unregistered from the Hub
 	// when the client disconnects
+	c.wg.Add(1)
 	go func(c *client) {
 		defer c.wg.Done()
 		<-c.context.Done()
+		c.logger.Info("Requesting deregistration")
 		c.HubClientInterface.UnregisterClient(c) // Unregister self
 	}(c)
+	c.logger.Info("Started.")
 }
 
 func (c *client) ListenerThread() {
@@ -65,12 +80,12 @@ func (c *client) ListenerThread() {
 		var v Message
 		err := wsjson.Read(c.context, c.Connection, &v)
 		if err != nil {
-			fmt.Println("Reader error/disconnect:", err)
-			c.Shutdown()
+			c.logger.Info("Reader error/disconnect: %v", err)
+			go c.Shutdown() // This feels janky
 			return
 		}
 
-		fmt.Printf("Received: %#v\n", v)
+		c.logger.Info("Received: %#v\n", v)
 
 		switch v.Action {
 		case "subscribe":
@@ -85,7 +100,7 @@ func (c *client) ListenerThread() {
 	}
 }
 
-func toTypedTicker(arr []string) []Ticker{
+func toTypedTicker(arr []string) []Ticker {
 	typedTickers := make([]Ticker, len(arr))
 	for i, ticker := range arr {
 		typedTickers[i] = Ticker(ticker)

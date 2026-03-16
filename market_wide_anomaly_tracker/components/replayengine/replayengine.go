@@ -17,9 +17,12 @@ type ReplayEnginerServer interface {
 
 type replayEngineServer struct {
 	Server *http.Server
+	wg     sync.WaitGroup
 
 	// Children
 	Hub Hub
+
+	logger ComponentLogger
 }
 
 func NewReplayEnginerServer() *replayEngineServer {
@@ -35,7 +38,9 @@ func NewReplayEnginerServer() *replayEngineServer {
 	// 3. Init the replayEngineServer
 	ret := &replayEngineServer{
 		Server: server,
+		wg:     sync.WaitGroup{},
 		Hub:    NewHub(),
+		logger: NewLogger("ReplayEnginerServer"),
 	}
 
 	// 4. Assing handler for /ws endpoint
@@ -45,13 +50,14 @@ func NewReplayEnginerServer() *replayEngineServer {
 }
 
 func (s *replayEngineServer) Start() {
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		// Start child components
-		fmt.Printf("[ReplayEnginerServer] starting hub...\n")
 		s.Hub.Start()
 
 		// Start listening
-		fmt.Printf("[ReplayEnginerServer] listening on %s\n", s.Server.Addr)
+		s.logger.Info("listening on %s", s.Server.Addr)
 		err := s.Server.ListenAndServe()
 		if err != nil {
 			log.Fatalf("ListenAndServe: %s", err)
@@ -62,12 +68,12 @@ func (s *replayEngineServer) Start() {
 }
 
 func (s *replayEngineServer) Shutdown() {
-	var wg sync.WaitGroup
-	// 1. Shutdown
-	wg.Add(1)
+	// 1. Stop serving new connections
+	s.wg.Add(1)
 	go func() {
-		defer wg.Done()
-		fmt.Printf("[ReplayEnginerServer] Shutting down http server...\n")
+		defer s.wg.Done()
+
+		s.logger.Info("Shutting down http server...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //TODO: magic num
 		defer cancel()
 
@@ -76,11 +82,11 @@ func (s *replayEngineServer) Shutdown() {
 		}
 	}()
 
-	fmt.Printf("[ReplayEnginerServer] Shutting down Hub...\n")
 	s.Hub.Shutdown()
 
-	wg.Wait()
-	fmt.Printf("[ReplayEnginerServer] All systems halted\n")
+	s.wg.Wait()
+	s.logger.Info("Shutdown")
+
 }
 
 // Will launch in new go thread
@@ -91,9 +97,9 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 		// TODO: Log
 		return
 	}
-	
+
 	// 2. Create a new client instance
-	client := NewClient(c, s.Hub)	
+	client := NewClient(c, s.Hub)
 
 	// 3. Register it with the Hub, the Hub will handle its lifecycle
 	s.Hub.RegisterClient(client)
@@ -101,5 +107,3 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 	// 4. Start the client up (i.e. listener / sender)
 	client.Start()
 }
-
-

@@ -71,6 +71,7 @@ type hub struct {
 	dataReadyChan chan dataReadyMsg
 
 	DataAvailabilityProvider
+	logger ComponentLogger
 }
 
 // INIT METHOD
@@ -89,15 +90,17 @@ func NewHub() *hub {
 		clientToSubbedTickers:    make(map[*client]map[Ticker]struct{}),
 		ownedTickerThreads:       make(map[Ticker]*tickerThread),
 		DataAvailabilityProvider: NewDataCoordinater(),
+		logger:                   NewLogger("Hub"),
 	}
 }
 
 func (h *hub) Shutdown() {
-	h.Printf("Shutdown")
 	// First shutdown all child components (client, ticker threads, data controller)
 
 	// Then shutdown itself
 	h.CancelCtx()
+	h.wg.Wait()
+	h.logger.Info("Shutdown")
 }
 
 func (h *hub) Printf(s string, a ...any) {
@@ -106,7 +109,6 @@ func (h *hub) Printf(s string, a ...any) {
 }
 
 func (h *hub) Start() {
-	h.Printf("Starting")
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
@@ -130,13 +132,13 @@ func (h *hub) Start() {
 					h.handleUnsub(req.Client, req.Tickers)
 				}
 			case sig := <-h.dataReadyChan:
-				h.Printf("received on dataReadyChan: %#v", sig)
 				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
 					h.StartTickerThread(sig.ticker, sig.date)
 				}
 			}
 		}
 	}()
+	fmt.logger.("Started.")
 }
 
 func (h *hub) RegisterClient(c *client) {

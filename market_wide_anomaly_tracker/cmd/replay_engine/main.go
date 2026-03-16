@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,5 +16,6 @@ func main() {
 	s := replayengine.NewReplayEnginerServer()
 	s.Start()
 	<-c
-	s.Shutdown()	
+	fmt.Printf("\n")
+	s.Shutdown()
 }

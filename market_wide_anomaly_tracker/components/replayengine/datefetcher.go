@@ -1,8 +1,14 @@
 package replayengine
 
-import "cloud.google.com/go/civil"
+import (
+	"context"
+	"sync"
+
+	"cloud.google.com/go/civil"
+)
 
 type DataFetcher interface {
+	LifeCycle
 	RequestHydation(ticker Ticker, date civil.Date)
 }
 
@@ -13,38 +19,44 @@ type HydrationRequest struct {
 
 // dataFetcher implements the DataFetcher inteface
 type dataFetcher struct {
-	shutdownChan         chan struct{}
+	Ctx       context.Context
+	CancelCtx context.CancelFunc
+	wg        sync.WaitGroup
+
 	reqHydrationChan chan HydrationRequest
+
+	logger ComponentLogger
 }
 
-// INIT METHOD
 func NewDataFetcher() *dataFetcher {
 	return &dataFetcher{}
 }
 
-// CORE LOOP
-func (f *dataFetcher) Run() {
-	for {
-		select {
-		case <-f.shutdownChan:
-			f.shutdown()
-			return
+func (f *dataFetcher) Start() {
+	f.wg.Add(1)
+	go func() {
+		defer f.wg.Done()
+		for {
+			select {
+			case <-f.Ctx.Done():
+				return
 
-		// TODO: Handling of hydration requests
-		case _ = <-f.reqHydrationChan:
+			// TODO: Handling of hydration requests
+			case _ = <-f.reqHydrationChan:
 
-			continue
+				continue
+			}
 		}
-	}
+	}()
+	f.logger.Info("Started.")
 }
 
-// SHUTDOWN METHOD
-func (f *dataFetcher) shutdown() {
-	// TODO: Implement shutdown of all child processes (TBD)
+func (f *dataFetcher) Shutdown() {
+	f.CancelCtx()
+	f.wg.Wait()
+	f.logger.Info("Shutdown.")
 }
 
 func (f *dataFetcher) RequestHydation(ticker Ticker, date civil.Date) {
 	f.reqHydrationChan <- HydrationRequest{ticker, date}
 }
-
-
