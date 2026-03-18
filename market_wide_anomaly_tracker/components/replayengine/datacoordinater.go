@@ -5,20 +5,8 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
+	"github.com/massive-com/client-go/v3/rest"
 )
-
-/*
-PLAN: Data Coordinater
-
-Purpose:
-- Hub needs to be able ask if data for a certain ticker for a certain day is ready [METHOD], a tickers state
-will be maintained in a map[Ticker]AvailabilityStatus
-  - IF READY: return True
-  - IF NOT READY: update status to HYDRATING and send a command [PIPE] to the Fetcher via
-  -	IF not read: return False and issue a command [PIPE] to the DataFetcher to fetch & save the data from MASSIVE
-    - WHEN DataFetcher sends a `data_ready` event back, forward it to the Hub s.t. the Hub can then start the
-	associated `TickerThread`
-*/
 
 type DataAvailability int
 
@@ -29,7 +17,7 @@ const (
 
 type dataQuery struct {
 	ticker  Ticker
-	dateStr string
+	date civil.Date
 }
 
 type stateNotification struct {
@@ -55,33 +43,52 @@ type DataCoordinater interface {
 type dataCoordinater struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
+	wg        sync.WaitGroup
 
 	statusMapMu sync.Mutex
 	statusMap   map[string]map[Ticker]DataAvailability
 
 	logger ComponentLogger
 	db     Database
+	massiveClient *massiveClient
 
 	dataQueryChan chan dataQuery
 }
 
 // TODO:
 func NewDataCoordinater() *dataCoordinater {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &dataCoordinater{
-		logger: NewLogger("DataCoordinator"),
+		Ctx:       ctx,
+		CancelCtx: cancel,
+		wg:        sync.WaitGroup{},
+
+		statusMapMu: sync.Mutex{},
+		statusMap:   make(map[string]map[Ticker]DataAvailability),
+
+		// TODO: db
+		massiveClient: NewMassiveClient(),
+
+		logger:        NewLogger("DataCoordinator"),
+		dataQueryChan: make(chan dataQuery, 1024),
 	}
 }
 
 func (c *dataCoordinater) Start() {
+	c.wg.Add(1)
 	go func() {
+		defer c.wg.Done()
 		for {
 			select {
 			case query := <-c.dataQueryChan:
 				c.statusMapMu.Lock()
-				state := c.statusMap[query.dateStr][query.ticker]
+				dateStr := query.date.String()
+				state := c.statusMap[dateStr][query.ticker]
 				if !(state == READY || state == HYDRATING) {
-					go c.HydrationTask(query.dateStr, query.ticker)
-					c.statusMap[query.dateStr][query.ticker] = HYDRATING
+					c.wg.Add(1)
+					go c.HydrationTask(query.date, query.ticker)
+
+					c.statusMap[dateStr][query.ticker] = HYDRATING
 				}
 				c.statusMapMu.Unlock()
 
@@ -96,11 +103,17 @@ func (c *dataCoordinater) Start() {
 }
 
 func (c *dataCoordinater) Shutdown() {
+	c.massiveClient.Shutdown()
+
+	c.CancelCtx()
+	c.wg.Wait()
 	c.logger.Info("shutdown.")
 }
 
-func (c *dataCoordinater) HydrationTask(dateStr string, ticker Ticker) {
+func (c *dataCoordinater) HydrationTask(date civil.Date, ticker Ticker) {
+	defer c.wg.Done()
 
+	c.massiveClient.FetchDayData(c.Ctx, date, ticker)
 }
 
 // DataAvailabilityProvider interface implementation
@@ -115,14 +128,10 @@ func (c *dataCoordinater) IsReady(t Ticker, d civil.Date) bool {
 		return true
 	}
 
-	// IF not ready, do something that triggers:
+	// Otherwise 
+	c.dataQueryChan <- dataQuery{t, d}
 
-	// query the DB to see if we already have the required data
-
-	// IF yes, then signal that the data is ready
-
-	// IF no, spawn a data fetcher thread to go and fetch & store the data from the external API
-
+	return false
 }
 
 // DataStateStatusConsumer
