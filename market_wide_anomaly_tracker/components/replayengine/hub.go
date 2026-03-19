@@ -68,9 +68,9 @@ type hub struct {
 	clientToSubbedTickers map[*client]map[Ticker]struct{}
 
 	dataReadyChan chan dataReadyMsg
-
-	DataAvailabilityProvider
 	logger ComponentLogger
+	
+	DataAvailabilityProvider
 }
 
 // INIT METHOD
@@ -88,13 +88,14 @@ func NewHub() *hub {
 		tickerToClient:           make(map[Ticker]map[*client]struct{}),
 		clientToSubbedTickers:    make(map[*client]map[Ticker]struct{}),
 		ownedTickerThreads:       make(map[Ticker]*tickerThread),
-		DataAvailabilityProvider: NewDataCoordinater(),
 		logger:                   NewLogger("Hub"),
+		DataAvailabilityProvider: nil, // Initialised post-hoc
 	}
 }
 
 func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
+	h.dateCoordinator.Shutdown()
 
 	// Then shutdown itself
 	h.CancelCtx()
