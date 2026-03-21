@@ -66,7 +66,11 @@ func (c *massiveClient) Start() {
 			case <-c.Ctx.Done():
 				return
 			case <-ticker.C:
-				c.RequestTokenChan <- struct{}{}
+				// Non-blocking send
+				select {
+				case c.RequestTokenChan <- struct{}{}:
+				default:
+				}
 			}
 		}
 	}()
@@ -144,7 +148,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		fmt.Printf("[%d] %#v \n", i, bar)
 	}
 	// TODO: Remove
-	//fmt.Printf("len arr: %d\n", len(aggregateData))
+	fmt.Printf("len arr: %d\n", len(aggregateData))
 
 	return aggregateData, nil
 }

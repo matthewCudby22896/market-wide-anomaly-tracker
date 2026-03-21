@@ -2,6 +2,7 @@ package replayengine
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -9,6 +10,8 @@ import (
 
 	"cloud.google.com/go/civil"
 )
+
+var TODAY = civil.Date{Year: 2025, Month: 3, Day: 20}
 
 type HubReqType int
 
@@ -36,17 +39,11 @@ type HubClientInterface interface {
 	UnregisterClient(c *client)
 }
 
-// Hub functionality exposed to TickerThread
-type BroadcastIngester interface {
-	BroadcastMessagePipe() chan<- BroadcastMessage
-}
-
 type Hub interface {
 	LifeCycle
 
 	HubClientInterface
 	DataAvailabilityConsumer
-	BroadcastIngester
 
 	RegisterClient(c *client)
 }
@@ -67,35 +64,44 @@ type hub struct {
 	ownedTickerThreads    map[Ticker]*tickerThread
 	clientToSubbedTickers map[*client]map[Ticker]struct{}
 
-	dataReadyChan chan dataReadyMsg
-	logger ComponentLogger
-	
-	DataAvailabilityProvider
+	notificationChan chan any
+	logger           ComponentLogger
+
+	DataCoordinator
 }
 
 // INIT METHOD
 func NewHub() *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &hub{
-		Ctx:                      ctx,
-		CancelCtx:                cancel,
-		wg:                       sync.WaitGroup{},
-		requestsChan:             make(chan hubRequest, 1024),
-		broadcast:                make(chan BroadcastMessage, 1024),
-		dataReadyChan:            make(chan dataReadyMsg, 1024),
-		clients:                  make(map[*client]struct{}),
-		tickerToClient:           make(map[Ticker]map[*client]struct{}),
-		clientToSubbedTickers:    make(map[*client]map[Ticker]struct{}),
-		ownedTickerThreads:       make(map[Ticker]*tickerThread),
-		logger:                   NewLogger("Hub"),
-		DataAvailabilityProvider: nil, // Initialised post-hoc
+	h := &hub{
+		Ctx:                   ctx,
+		CancelCtx:             cancel,
+		wg:                    sync.WaitGroup{},
+		requestsChan:          make(chan hubRequest, 1024),
+		broadcast:             make(chan BroadcastMessage, 1024),
+		notificationChan:      make(chan any, 1024),
+		clients:               make(map[*client]struct{}),
+		tickerToClient:        make(map[Ticker]map[*client]struct{}),
+		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
+		ownedTickerThreads:    make(map[Ticker]*tickerThread),
+		logger:                NewLogger("Hub"),
+		DataCoordinator:       NewDataCoordinator(),
 	}
+
+	h.DataCoordinator.SetOutbox(h.notificationChan)
+
+	return h
 }
 
 func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
-	h.dateCoordinator.Shutdown()
+	h.DataCoordinator.Shutdown()
+
+	for _, tickerThread := range h.ownedTickerThreads {
+		tickerThread.Shutdown()
+	}
+	h.logger.Info("all ticker threads shutdown.")
 
 	// Then shutdown itself
 	h.CancelCtx()
@@ -104,6 +110,8 @@ func (h *hub) Shutdown() {
 }
 
 func (h *hub) Start() {
+	h.DataCoordinator.Start()
+
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
@@ -126,9 +134,18 @@ func (h *hub) Start() {
 				case UNSUB:
 					h.handleUnsub(req.Client, req.Tickers)
 				}
-			case sig := <-h.dataReadyChan:
-				if _, ok := h.ownedTickerThreads[sig.ticker]; !ok {
-					h.StartTickerThread(sig.ticker, sig.date)
+
+			case notification := <-h.notificationChan:
+				switch v := notification.(type) {
+				case hydrationSuccess:
+					h.logger.Info("hydrationSuccess notification recieved: %#v\n", v)
+					h.StartTickerThread(v.Ticker, v.Date)
+
+				case hydrationFailure:
+					h.logger.Info("hydrationFailure notification recieved: %#v\n", v)
+					// TODO: Decide what to do in this case
+				default:
+					h.logger.Info("unrecognised notification recieved: %#v\n", v)
 				}
 			}
 		}
@@ -159,11 +176,8 @@ func (h *hub) RequestUnsub(c *client, tickers []Ticker) {
 }
 
 func (h *hub) SignalDataReady(ticker Ticker, date civil.Date) {
-	h.dataReadyChan <- dataReadyMsg{ticker, date}
+	h.notificationChan <- dataReadyMsg{ticker, date}
 }
-
-// DataAvailabilityConsumer interface implementation
-func (h *hub) DataReadyPipe() chan<- dataReadyMsg { return h.dataReadyChan }
 
 // BroadcastIngester interface implementation
 func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
@@ -181,9 +195,10 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
 			h.logger.Info("first subscriber for %s. Starting ticker thread.", ticker)
 
-			if h.DataAvailabilityProvider.IsReady(ticker, civil.DateOf(time.Now())){
+			if h.DataCoordinator.IsReady(ticker, TODAY) {
+				fmt.Printf("dataCoordinator returned ready immediately")
 				// If it is, send to data ready chan
-				h.dataReadyChan <- dataReadyMsg{
+				h.notificationChan <- dataReadyMsg{
 					ticker: ticker,
 					date:   civil.DateOf(time.Now()),
 				}
@@ -252,14 +267,17 @@ func (h *hub) killTickerThread(ticker Ticker) {
 	delete(h.ownedTickerThreads, ticker)
 }
 
-func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) {
+func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) *tickerThread {
 	h.logger.Info("starting ticker thread for %s", ticker)
 	// Init ticker thread
 	thread := NewTickerThread(h, ticker, date)
+	thread.outbox = h.broadcast
 
 	// Add to map
 	h.ownedTickerThreads[ticker] = thread
 
 	// Start
 	thread.Start()
+
+	return thread
 }

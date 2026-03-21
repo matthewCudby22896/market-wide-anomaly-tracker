@@ -3,7 +3,6 @@ package replayengine
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -21,7 +20,6 @@ type replayEngineServer struct {
 
 	// Children
 	Hub Hub
-	dataCoordinater
 
 	logger ComponentLogger
 }
@@ -53,17 +51,12 @@ func NewReplayEnginerServer() *replayEngineServer {
 		Handler: mux,
 	}
 
-	hub := NewHub()
-	dataCoordinater := NewDataCoordinater()
-	dataCoordinater.DataAvailabilityConsumer = hub
-	hub.DataAvailabilityProvider = dataCoordinater
-
 	// 3. Init the replayEngineServer
 	ret := &replayEngineServer{
 		Server: server,
 		wg:     sync.WaitGroup{},
-		Hub:    NewHub(),
 		logger: NewLogger("ReplayEnginerServer"),
+		Hub:    NewHub(),
 	}
 
 	// 4. Assing handler for /ws endpoint
@@ -83,8 +76,7 @@ func (s *replayEngineServer) Start() {
 		s.logger.Info("listening on %s", s.Server.Addr)
 		err := s.Server.ListenAndServe()
 		if err != nil {
-			log.Fatalf("ListenAndServe: %s", err)
-			s.Shutdown()
+			s.logger.Info("ListenAndServe err: %v", err)
 			return
 		}
 	}()
@@ -106,9 +98,10 @@ func (s *replayEngineServer) Shutdown() {
 	}()
 
 	s.Hub.Shutdown()
+	s.logger.Info("shutdown hub.")
 
 	s.wg.Wait()
-	s.logger.Info("Shutdown")
+	s.logger.Info("shutdown.")
 
 }
 

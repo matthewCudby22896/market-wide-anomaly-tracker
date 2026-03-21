@@ -3,6 +3,7 @@ package replayengine
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -18,10 +19,10 @@ type tickerThread struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	Ingester  BroadcastIngester
 	Ticker    Ticker
 	Date      civil.Date
 	logger    ComponentLogger
+	outbox    chan<- BroadcastMessage
 }
 
 func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
@@ -31,10 +32,10 @@ func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
 		Ctx:       ctx,
 		CancelCtx: cancel,
 		wg:        sync.WaitGroup{},
-		Ingester:  owner,
+		logger:    NewLogger(fmt.Sprintf("%s TickerThread", ticker)),
 		Ticker:    ticker,
 		Date:      date,
-		logger:    NewLogger(fmt.Sprintf("%s TickerThread", ticker)),
+		outbox:    nil, // Initialised by parent
 	}
 }
 
@@ -54,6 +55,11 @@ func (t *tickerThread) AsynShutdown() {
 }
 
 func (t *tickerThread) Start() {
+	if t.outbox == nil {
+		t.logger.Info("fatal : t.outbox was nil")
+		os.Exit(1)
+	}
+
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
@@ -72,7 +78,7 @@ func (t *tickerThread) Start() {
 					Data:   DummyAggregateBar(string(t.Ticker)),
 				}
 
-				t.Ingester.BroadcastMessagePipe() <- dummyMsg
+				t.outbox <- dummyMsg
 			}
 		}
 	}()
