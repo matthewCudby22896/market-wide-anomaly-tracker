@@ -75,6 +75,7 @@ func NewDataCoordinator() *dataCoordinator {
 }
 
 func (c *dataCoordinator) Start() {
+	c.logger.LogStartChild("MassiveClient")
 	c.massiveClient.Start()
 	c.wg.Add(1)
 	go func() {
@@ -103,13 +104,12 @@ func (c *dataCoordinator) Start() {
 }
 
 func (c *dataCoordinator) Shutdown() {
-	c.logger.Info("shutting down client.")
+	c.logger.LogShutdownChild("MassiveClient")
 	c.massiveClient.Shutdown()
-	c.logger.Info("client shutdown.")
 
 	c.CancelCtx()
 	c.wg.Wait()
-	c.logger.Info("shutdown.")
+	c.logger.LogShutdown()
 }
 
 func (c *dataCoordinator) SetOutbox(outbox chan any) {
@@ -175,9 +175,4 @@ func (c *dataCoordinator) IsReady(t Ticker, d civil.Date) bool {
 	c.dataQueryChan <- dataQuery{t, d}
 
 	return false
-}
-
-// DataStateStatusConsumer
-func (c *dataCoordinator) SignalDataReady(ticker, date civil.Date) {
-
 }

@@ -53,7 +53,7 @@ func NewClient(c *websocket.Conn, hub Hub) *client {
 func (c *client) Shutdown() {
 	c.cancelContext()
 	c.wg.Wait()
-	c.logger.Info("shutdown.")
+	c.logger.LogShutdown()
 }
 
 func (c *client) Start() {

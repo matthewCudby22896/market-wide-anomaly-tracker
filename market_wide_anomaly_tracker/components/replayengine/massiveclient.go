@@ -80,7 +80,7 @@ func (c *massiveClient) Start() {
 func (c *massiveClient) Shutdown() {
 	c.CancelCtx()
 	c.wg.Wait()
-	c.logger.Info("shutdown.")
+	c.logger.LogShutdown()
 }
 
 type ohlcBar struct {

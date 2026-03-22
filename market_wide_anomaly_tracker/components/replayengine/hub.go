@@ -11,7 +11,8 @@ import (
 	"cloud.google.com/go/civil"
 )
 
-var TODAY = civil.Date{Year: 2025, Month: 3, Day: 20}
+var DEFAULT_DAY = civil.Date{Year: 2025, Month: 3, Day: 20}
+var DEFAULT_SPEEDUP int = 2
 
 type HubReqType int
 
@@ -68,6 +69,7 @@ type hub struct {
 	logger           ComponentLogger
 
 	DataCoordinator
+	Clock
 }
 
 // INIT METHOD
@@ -87,6 +89,7 @@ func NewHub() *hub {
 		ownedTickerThreads:    make(map[Ticker]*tickerThread),
 		logger:                NewLogger("Hub"),
 		DataCoordinator:       NewDataCoordinator(),
+		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
 	}
 
 	h.DataCoordinator.SetOutbox(h.notificationChan)
@@ -96,21 +99,24 @@ func NewHub() *hub {
 
 func (h *hub) Shutdown() {
 	// First shutdown all child components (client, ticker threads, data controller)
+	h.logger.LogShutdownChild("DataCoordinator")
 	h.DataCoordinator.Shutdown()
 
-	for _, tickerThread := range h.ownedTickerThreads {
+	for ticker, tickerThread := range h.ownedTickerThreads {
+		h.logger.LogShutdownChild(fmt.Sprintf("TickerThread-%s", ticker))
 		tickerThread.Shutdown()
 	}
-	h.logger.Info("all ticker threads shutdown.")
 
 	// Then shutdown itself
 	h.CancelCtx()
 	h.wg.Wait()
-	h.logger.Info("shutdown")
+	h.logger.LogShutdown()
 }
 
 func (h *hub) Start() {
+	h.logger.LogStartChild("DataCoordinator")
 	h.DataCoordinator.Start()
+	h.Clock.Start()
 
 	h.wg.Add(1)
 	go func() {
@@ -195,7 +201,7 @@ func (h *hub) handleSub(c *client, tickers []Ticker) {
 		if _, ok := h.ownedTickerThreads[ticker]; !ok {
 			h.logger.Info("first subscriber for %s. Starting ticker thread.", ticker)
 
-			if h.DataCoordinator.IsReady(ticker, TODAY) {
+			if h.DataCoordinator.IsReady(ticker, DEFAULT_DAY) {
 				fmt.Printf("dataCoordinator returned ready immediately")
 				// If it is, send to data ready chan
 				h.notificationChan <- dataReadyMsg{
@@ -263,20 +269,25 @@ func (h *hub) handleUnregister(c *client) {
 
 func (h *hub) killTickerThread(ticker Ticker) {
 	thread := h.ownedTickerThreads[ticker]
+	h.logger.LogShutdownChild(fmt.Sprintf("TickerThread-%s", ticker))
 	thread.AsynShutdown()
 	delete(h.ownedTickerThreads, ticker)
 }
 
 func (h *hub) StartTickerThread(ticker Ticker, date civil.Date) *tickerThread {
-	h.logger.Info("starting ticker thread for %s", ticker)
-	// Init ticker thread
+	h.logger.LogStartChild(fmt.Sprintf("TickerThread-%s", ticker))
+
+	// 1. Init ticker thread
 	thread := NewTickerThread(h, ticker, date)
 	thread.outbox = h.broadcast
 
-	// Add to map
+	// 2. Register it with the clock s.t. it recieves ticks
+	h.Clock.RegisterPipe(thread.GetTickPipe())
+
+	// 3. Keep ref in map
 	h.ownedTickerThreads[ticker] = thread
 
-	// Start
+	// 4. Start the thread
 	thread.Start()
 
 	return thread

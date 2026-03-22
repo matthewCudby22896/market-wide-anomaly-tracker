@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	"cloud.google.com/go/civil"
 )
@@ -13,6 +12,8 @@ import (
 type TickerThread interface {
 	LifeCycle
 	AsynShutdown()
+	GetTickPipe() chan<- int64
+	SetOutbox(outbox chan<- BroadcastMessage)
 }
 
 type tickerThread struct {
@@ -23,6 +24,7 @@ type tickerThread struct {
 	Date      civil.Date
 	logger    ComponentLogger
 	outbox    chan<- BroadcastMessage
+	ticks     chan int64
 }
 
 func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
@@ -35,6 +37,7 @@ func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
 		logger:    NewLogger(fmt.Sprintf("%s TickerThread", ticker)),
 		Ticker:    ticker,
 		Date:      date,
+		ticks:     make(chan int64),
 		outbox:    nil, // Initialised by parent
 	}
 }
@@ -47,7 +50,7 @@ func (t *tickerThread) Shutdown() {
 	t.CancelCtx()
 
 	t.wg.Wait()
-	t.logger.Info("shutdown")
+	t.logger.LogShutdown()
 }
 
 func (t *tickerThread) AsynShutdown() {
@@ -63,16 +66,13 @@ func (t *tickerThread) Start() {
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
-		ticker := time.NewTicker(1 * time.Second)
-
-		defer ticker.Stop()
 
 		for {
 			select {
 			case <-t.Ctx.Done():
 				return
 
-			case <-ticker.C:
+			case <-t.ticks:
 				dummyMsg := BroadcastMessage{
 					Ticker: t.Ticker,
 					Data:   DummyAggregateBar(string(t.Ticker)),
@@ -82,4 +82,12 @@ func (t *tickerThread) Start() {
 			}
 		}
 	}()
+}
+
+func (t *tickerThread) GetTickPipe() chan<- int64 {
+	return t.ticks
+}
+
+func (t *tickerThread) SetOutbox(outbox chan<- BroadcastMessage) {
+	t.outbox = outbox
 }

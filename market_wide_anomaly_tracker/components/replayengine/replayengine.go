@@ -24,23 +24,6 @@ type replayEngineServer struct {
 	logger ComponentLogger
 }
 
-/*
-TODO:
-- The Hub should create the dataCoordinator and pass it a chan for messages
-about ticker-date state i.e for when a ticker is hydrated.
-- The datacoordinator should not know about the hub, it should only take the chan
-to pass events to (i.e. an outbox)
-- This avoids circular dependency
-
-Follow the: Method Down, Channel Up.
-
-i.e. the DataCoordinator is a dependency of hub
-
-We signal down the dependency tree using methods i.e. IsReady()
-
-We signal back up using channels
-*/
-
 func NewReplayEnginerServer() *replayEngineServer {
 	// 1. Init the multiplexer
 	mux := http.NewServeMux()
@@ -70,6 +53,7 @@ func (s *replayEngineServer) Start() {
 	go func() {
 		defer s.wg.Done()
 		// Start child components
+		s.logger.LogStartChild("Hub")
 		s.Hub.Start()
 
 		// Start listening
@@ -97,11 +81,11 @@ func (s *replayEngineServer) Shutdown() {
 		}
 	}()
 
+	s.logger.LogShutdownChild("Hub")
 	s.Hub.Shutdown()
-	s.logger.Info("shutdown hub.")
 
 	s.wg.Wait()
-	s.logger.Info("shutdown.")
+	s.logger.LogShutdown()
 
 }
 
