@@ -1,12 +1,11 @@
 Hub
     - DataCoordinator
+    - Clock
     - []Client
     - []TickerThread
 
 DataCoordinator
-    - DataFetcher
 
-DataFetcher
 
 
 
