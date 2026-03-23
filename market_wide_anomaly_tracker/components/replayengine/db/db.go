@@ -1,8 +1,11 @@
 package db
 
 import (
+	"bufio"
 	"context"
-	"log"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -38,20 +41,53 @@ func createMigrationsTable(ctx context.Context, conn *pgx.Conn) error {
 	)`
 
 	_, err := conn.Exec(ctx, stmt)
-	return err	
+	return err
 }
 
-func setupDB() {
-	ctx := context.WithoutCancel(context.Background())
-
-	conn, err := getConnection()
+func getMigrations() ([]string, error) {
+	linesTxt := make([]string, 0)
+	file, err := os.Open("migrations.txt")
 	if err != nil {
-		log.Fatalf("Failed to connect to db: %#v", err)
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		linesTxt = append(linesTxt, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
+	paths := make([]string, len(linesTxt))
+	for i, f := range linesTxt {
+		absPath, err := filepath.Abs(f)
+		if err != nil {
+			return nil, err
+		}
+		paths[i] = absPath
+	}
+
+	return paths, nil
+}
+
+func setupDB(conn *pgx.Conn) error {
+	ctx := context.WithoutCancel(context.Background())
+
 	// 1. Create migrations table if it doesn't exist
-	createMigrationsTable(ctx, conn)
+	err := createMigrationsTable(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("failed to setup db: %#v ", err)
+	}
 
 	// 2. Get list of migrations
+	migrations, err := getMigrations()
+	if err != nil {
+		return fmt.Errorf("failed to get migrations: %#v ", err)
+	}
+	fmt.Print(migrations)
 
+	return nil
 }

@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/suite"
-
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -77,7 +76,18 @@ func (suite *dbTestSuite) setupTestDB() {
 	suite.conn = conn
 }
 
-func (s *dbTestSuite) TestApplyMigrations()
+func (s *dbTestSuite) TestGetMigratons() {
+	migrations, err := getMigrations()
+	s.T().Logf("migrations len(%d): %#v\n", len(migrations), migrations)
+	s.Assert().NoError(err)
+	s.Assert().Len(migrations, 1)
+}
+
+func (s *dbTestSuite) TestSetupDB() {
+	err := setupDB(s.conn)
+	s.Assert().NoError(err)
+
+}
 
 func TestDBTestSuite(t *testing.T) {
 	suite.Run(t, new(dbTestSuite))
