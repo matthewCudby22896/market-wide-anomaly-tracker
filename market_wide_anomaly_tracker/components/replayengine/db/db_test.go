@@ -49,7 +49,8 @@ func (suite *dbTestSuite) setupTestDB() {
 	ctx := context.Background()
 
 	// Start timescale db container
-	os.Setenv("TESTCONTAINERS_RYUK_DISABLE", "true")
+	// Note: Not certain this Setenv call is working as intended
+	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	timescaleC, err := testcontainers.Run(
 		ctx,
 		"timescale/timescaledb-ha:pg18",
@@ -62,7 +63,7 @@ func (suite *dbTestSuite) setupTestDB() {
 			wait.ForListeningPort("5432/tcp"),
 		),
 	)
-	suite.Assert().NoError(err)
+	suite.Require().NoError(err)
 	suite.container = timescaleC
 
 	// Get endpoint
@@ -86,7 +87,6 @@ func (s *dbTestSuite) TestGetMigratons() {
 func (s *dbTestSuite) TestSetupDB() {
 	err := setupDB(s.conn)
 	s.Assert().NoError(err)
-
 }
 
 func TestDBTestSuite(t *testing.T) {

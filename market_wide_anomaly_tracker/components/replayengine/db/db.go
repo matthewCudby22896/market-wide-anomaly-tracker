@@ -3,9 +3,11 @@ package db
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,6 +15,11 @@ import (
 var DB_URL = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
 
 func getConnection() (*pgx.Conn, error) {
+	/*
+			*pgc.Conn represents a single connection to the database and is not
+		concurrency sage. Use github.com/jackc/pgx/v5/pgxpool for a concurrency
+		safe connection pool.
+	*/
 	conn, err := pgx.Connect(context.Background(), DB_URL)
 
 	return conn, err
@@ -44,7 +51,7 @@ func createMigrationsTable(ctx context.Context, conn *pgx.Conn) error {
 	return err
 }
 
-func getMigrations() ([]string, error) {
+func getMigrations() (map[string]string, error) {
 	linesTxt := make([]string, 0)
 	file, err := os.Open("migrations.txt")
 	if err != nil {
@@ -61,13 +68,13 @@ func getMigrations() ([]string, error) {
 		return nil, err
 	}
 
-	paths := make([]string, len(linesTxt))
-	for i, f := range linesTxt {
+	paths := make(map[string]string, len(linesTxt))
+	for _, f := range linesTxt {
 		absPath, err := filepath.Abs(f)
 		if err != nil {
 			return nil, err
 		}
-		paths[i] = absPath
+		paths[f] = absPath
 	}
 
 	return paths, nil
@@ -87,7 +94,94 @@ func setupDB(conn *pgx.Conn) error {
 	if err != nil {
 		return fmt.Errorf("failed to get migrations: %#v ", err)
 	}
-	fmt.Print(migrations)
 
+	// 3. Apply migrations
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %#v ", err)
+	}
+	// Rollback is safe to call even if the tx is already closed, so if
+	// the tx commits succesfully, this is a no-op
+	defer tx.Rollback(ctx)
+
+	prevHash := make([]byte, 32)
+
+	for mName, mPath := range migrations {
+		contents, err := os.ReadFile(mPath)
+		if err != nil {
+			return fmt.Errorf("failed to read migration file %s: %#v", mName, err)
+		}
+
+		currentHash, _ := _hash(prevHash, contents)
+		mApplied, storedHash, _ := _migrationApplied(ctx, tx, mName)
+
+		if mApplied {
+			if !slices.Equal(currentHash, storedHash) {
+				return fmt.Errorf("stored hash doesn't match calculated hash for migration: `%s`", mName)
+			}
+
+		} else {
+			stmt := string(contents)
+			_, err := tx.Exec(ctx, stmt)
+			if err != nil {
+				return fmt.Errorf("failed to apply migration `%s`: %#v", mName, err)
+			}
+			_appendMigration(ctx, tx, mName, prevHash, currentHash)
+		}
+		prevHash = currentHash
+	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit tx: %#v ", err)
+	}
+
+	return nil
+}
+
+func _hash(migrationContents, prevMigrationHash []byte) ([]byte, error) {
+	h := sha256.New()
+	hashSeed := append(migrationContents, prevMigrationHash...)
+	_, err := h.Write(hashSeed)
+	if err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
+}
+
+func _migrationApplied(ctx context.Context, tx pgx.Tx, migrationName string) (bool, []byte, error) {
+	stmt := "SELECT name, current_hash FROM migrations WHERE name = $1"
+	var name string
+	var currentHash string
+	err := tx.QueryRow(ctx, stmt, migrationName).Scan(&name, &currentHash)
+	if err != nil {
+		return false, []byte{}, err
+	}
+	return (name == migrationName), []byte(currentHash), nil
+}
+
+func _appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash []byte) error {
+	if len(prevHash) != 32 {
+		return fmt.Errorf("`prevHash` was len %d, expecting len 32", len(prevHash))
+	}
+	if len(hash) != 32 {
+		return fmt.Errorf("`hash` was len %d, expecting len 32", len(hash))
+	}
+	stmt := `
+	INSERT INTO migrations (name, prev_hash, hash)
+	VALUES ($1, $2, $3);
+	`
+	tag, err := tx.Exec(
+		ctx,
+		stmt,
+		name,
+		string(prevHash),
+		string(hash),
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("rows affected != 1")
+	}
 	return nil
 }
