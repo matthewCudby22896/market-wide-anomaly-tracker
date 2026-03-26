@@ -27,7 +27,7 @@ type LifeCycle interface {
 	Shutdown()
 }
 
-type ohlcBar struct {
+type OHLC struct {
 	symbol string  // e.g. "AAPL"
 	vw     float64 // volume weighted average price
 	c      float64 // close price
@@ -39,8 +39,8 @@ type ohlcBar struct {
 	v      float64 // volume
 }
 
-func DummyOHLCBar(symbol string) ohlcBar {
-	return ohlcBar{
+func DummyOHLCBar(symbol string) OHLC {
+	return OHLC{
 		symbol: symbol,
 	}
 }

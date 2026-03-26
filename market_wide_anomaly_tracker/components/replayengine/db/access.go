@@ -6,7 +6,10 @@ import (
 	"os"
 	"sync"
 
+	"cloud.google.com/go/civil"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine"
 )
 
 /*
@@ -17,6 +20,8 @@ AIM:
 */
 
 type Database interface {
+	BatchStoreOHLC(bars []replayengine.OHLC) error
+	GetCompleteTradingDay(day civil.Date, symbol string) ([]replayengine.OHLC, error)
 }
 
 // Implements the Database interface
@@ -42,4 +47,14 @@ func NewDatabase() Database {
 	}
 
 	return db
+}
+
+func (d *database) BatchStoreOHLC(bars []replayengine.OHLC) error {
+	// TODO
+	return nil
+}
+
+func (d *database) GetCompleteTradingDay(day civil.Date, symbol string) ([]replayengine.OHLC, error) {
+	// TODO
+	return nil, nil
 }
