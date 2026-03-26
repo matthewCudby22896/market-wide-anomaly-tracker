@@ -27,32 +27,20 @@ type LifeCycle interface {
 	Shutdown()
 }
 
-type AggregateBar struct {
-	Event   string  `json:"ev"` // Event Type (e.g., "AM")
-	Symbol  string  `json:"sym"`
-	Volume  int     `json:"v"`
-	Open    float64 `json:"o"`
-	Close   float64 `json:"c"`
-	High    float64 `json:"h"`
-	Low     float64 `json:"l"`
-	VWAP    float64 `json:"a"` // Volume Weighted Average Price
-	StartMS int64   `json:"s"` // Starting Unix Epoch (milliseconds)
-	EndMS   int64   `json:"e"` // Ending Unix Epoch (milliseconds)
+type ohlcBar struct {
+	symbol string  // e.g. "AAPL"
+	vw     float64 // volume weighted average price
+	c      float64 // close price
+	h      float64 // highest price
+	l      float64 // lowest price
+	n      float64 // no. transactions
+	o      float64 // open
+	t      float64 // timestamp
+	v      float64 // volume
 }
 
-func DummyAggregateBar(ticker string) AggregateBar {
-	bar := AggregateBar{
-		Event:   "AM",
-		Symbol:  ticker,
-		Volume:  12345,
-		Open:    150.85,
-		High:    153.17,
-		Low:     150.50,
-		Close:   152.90,
-		VWAP:    151.87,
-		StartMS: 1611082800000,
-		EndMS:   1611082860000,
+func DummyOHLCBar(symbol string) ohlcBar {
+	return ohlcBar{
+		symbol: symbol,
 	}
-
-	return bar
 }

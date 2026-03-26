@@ -75,7 +75,7 @@ func (t *tickerThread) Start() {
 			case <-t.ticks:
 				dummyMsg := BroadcastMessage{
 					Ticker: t.Ticker,
-					Data:   DummyAggregateBar(string(t.Ticker)),
+					Data:   DummyOHLCBar(string(t.Ticker)),
 				}
 
 				t.outbox <- dummyMsg

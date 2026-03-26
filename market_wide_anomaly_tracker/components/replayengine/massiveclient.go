@@ -83,17 +83,6 @@ func (c *massiveClient) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-type ohlcBar struct {
-	vw float64 // volume weighted average price
-	c  float64 // close price
-	h  float64 // highest price
-	l  float64 // lowest price
-	n  float64 // no. transactions
-	o  float64 // open
-	t  float64 // timestamp
-	v  float64 // volume
-}
-
 func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Ticker) ([]ohlcBar, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
@@ -134,6 +123,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		v, _ := item["v"].(float64)
 
 		bar := ohlcBar{
+			symbol: string(ticker),
 			vw: vw,
 			c:  c,
 			h:  h,
