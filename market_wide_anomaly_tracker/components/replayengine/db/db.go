@@ -40,13 +40,12 @@ func getConnection() (*pgx.Conn, error) {
 func createMigrationsTable(ctx context.Context, conn *pgx.Conn) error {
 	stmt := `
 	CREATE TABLE IF NOT EXISTS migrations (
-		id SERIAL PRIMARY KEY,
-		name TEXT UNIQUE NOT NULL,
+		id         SERIAL PRIMARY KEY,
+		name       TEXT UNIQUE NOT NULL,
 		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		prev_hash CHAR(64) NOT NULL,
-		hash CHAR(64) NOT NULL
-	)`
-
+		prev_hash  CHAR(64) NOT NULL,
+		hash       CHAR(64) NOT NULL
+	);`
 	_, err := conn.Exec(ctx, stmt)
 	return err
 }
@@ -70,7 +69,7 @@ func getMigrations() (map[string]string, error) {
 
 	paths := make(map[string]string, len(linesTxt))
 	for _, f := range linesTxt {
-		absPath, err := filepath.Abs(f)
+		absPath, err := filepath.Abs("migrations/" + f)
 		if err != nil {
 			return nil, err
 		}
@@ -113,7 +112,10 @@ func setupDB(conn *pgx.Conn) error {
 		}
 
 		currentHash, _ := _hash(prevHash, contents)
-		mApplied, storedHash, _ := _migrationApplied(ctx, tx, mName)
+		mApplied, storedHash, err := _migrationApplied(ctx, tx, mName)
+		if err != nil {
+			return fmt.Errorf("_migrationsApplied err: %#v", err)
+		}
 
 		if mApplied {
 			if !slices.Equal(currentHash, storedHash) {
@@ -122,11 +124,16 @@ func setupDB(conn *pgx.Conn) error {
 
 		} else {
 			stmt := string(contents)
+
 			_, err := tx.Exec(ctx, stmt)
 			if err != nil {
 				return fmt.Errorf("failed to apply migration `%s`: %#v", mName, err)
 			}
-			_appendMigration(ctx, tx, mName, prevHash, currentHash)
+
+			err = _appendMigration(ctx, tx, mName, prevHash, currentHash)
+			if err != nil {
+				return fmt.Errorf("failed to append to migration table: %#v", err)
+			}
 		}
 		prevHash = currentHash
 	}
@@ -140,21 +147,27 @@ func setupDB(conn *pgx.Conn) error {
 
 func _hash(migrationContents, prevMigrationHash []byte) ([]byte, error) {
 	h := sha256.New()
-	hashSeed := append(migrationContents, prevMigrationHash...)
-	_, err := h.Write(hashSeed)
-	if err != nil {
+
+	if _, err := h.Write(prevMigrationHash); err != nil {
+		return nil, err
+	}
+	if _, err := h.Write(migrationContents); err != nil {
 		return nil, err
 	}
 	return h.Sum(nil), nil
 }
 
 func _migrationApplied(ctx context.Context, tx pgx.Tx, migrationName string) (bool, []byte, error) {
-	stmt := "SELECT name, current_hash FROM migrations WHERE name = $1"
+	stmt := "SELECT name, hash FROM migrations WHERE name = $1"
 	var name string
 	var currentHash string
-	err := tx.QueryRow(ctx, stmt, migrationName).Scan(&name, &currentHash)
+	rows, err := tx.Query(ctx, stmt, migrationName)
 	if err != nil {
 		return false, []byte{}, err
+	}
+	rows.Scan(&name, &currentHash)
+	if rows.Next() {
+		return false, []byte{}, fmt.Errorf(">1 row where name == `%s`", migrationName)
 	}
 	return (name == migrationName), []byte(currentHash), nil
 }
@@ -170,12 +183,15 @@ func _appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, has
 	INSERT INTO migrations (name, prev_hash, hash)
 	VALUES ($1, $2, $3);
 	`
+	prevHashStr := fmt.Sprintf("%x", prevHash)
+	hashStr := fmt.Sprintf("%x", hash)
+	fmt.Printf("prev: %s\ncurr: %s\n", prevHashStr, hashStr)
 	tag, err := tx.Exec(
 		ctx,
 		stmt,
 		name,
-		string(prevHash),
-		string(hash),
+		prevHashStr,
+		hashStr,
 	)
 	if err != nil {
 		return err
