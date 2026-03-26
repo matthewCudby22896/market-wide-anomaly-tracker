@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
 type DataAvailability int
@@ -26,18 +27,18 @@ type dataCoordinator struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
+	logger    ComponentLogger
 
+	database      db.Database
+	massiveClient *massiveClient
+
+	// Internal state
 	statusMapMu sync.Mutex
 	statusMap   map[string]map[Ticker]DataAvailability
 
-	logger        ComponentLogger
-	db            Database
-	massiveClient *massiveClient
-
 	// Internal channels
 	dataQueryChan chan dataQuery
-
-	outbox chan any
+	outbox        chan any
 }
 
 // Structs for internal use:
@@ -57,20 +58,19 @@ type hydrationFailure struct {
 	Date   civil.Date
 }
 
-func NewDataCoordinator() *dataCoordinator {
+func NewDataCoordinator(database db.Database) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &dataCoordinator{
-		Ctx:       ctx,
-		CancelCtx: cancel,
-		wg:        sync.WaitGroup{},
-
-		statusMapMu: sync.Mutex{},
-		statusMap:   make(map[string]map[Ticker]DataAvailability),
-
-		massiveClient: NewMassiveClient(),
-
+		Ctx:           ctx,
+		CancelCtx:     cancel,
+		wg:            sync.WaitGroup{},
 		logger:        NewLogger("DataCoordinator"),
+		database:      database,
+		massiveClient: NewMassiveClient(),
+		statusMapMu:   sync.Mutex{},
+		statusMap:     make(map[string]map[Ticker]DataAvailability),
 		dataQueryChan: make(chan dataQuery, 1024),
+		outbox:        nil, // Assigned post-hoc (by parent)
 	}
 }
 
@@ -164,7 +164,6 @@ func (c *dataCoordinator) updateStatus(ticker Ticker, date string, status DataAv
 	c.statusMap[date][ticker] = status
 }
 
-// DataAvailabilityProvider interface implementation
 func (c *dataCoordinator) IsReady(t Ticker, d civil.Date) bool {
 	state := c.getState(t, d.String())
 

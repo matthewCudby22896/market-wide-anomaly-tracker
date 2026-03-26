@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
 var DEFAULT_DAY = civil.Date{Year: 2025, Month: 3, Day: 20}
@@ -70,10 +71,11 @@ type hub struct {
 
 	DataCoordinator
 	Clock
+	Database db.Database
 }
 
 // INIT METHOD
-func NewHub() *hub {
+func NewHub(database db.Database) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	h := &hub{
@@ -88,8 +90,9 @@ func NewHub() *hub {
 		clientToSubbedTickers: make(map[*client]map[Ticker]struct{}),
 		ownedTickerThreads:    make(map[Ticker]*tickerThread),
 		logger:                NewLogger("Hub"),
-		DataCoordinator:       NewDataCoordinator(),
+		DataCoordinator:       NewDataCoordinator(database),
 		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
+		Database:              database,
 	}
 
 	h.DataCoordinator.SetOutbox(h.notificationChan)

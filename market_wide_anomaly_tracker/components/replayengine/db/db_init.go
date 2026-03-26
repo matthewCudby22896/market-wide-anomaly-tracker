@@ -25,18 +25,6 @@ func getConnection() (*pgx.Conn, error) {
 	return conn, err
 }
 
-/*
-- Want a `migrations` table, step 1 is to check that this exists and if it doesn't create it
-
-- Want to verify that migrations haven't been modified post hoc
-
-	- Could create a hash of each each migration and the prior migrations hash.
-	- Each time the system launches, it iterates over the migrations, redoing the work
-	of creating the hash chain. If one of them differs, then you know that either the
-	migration, or order of the migration changed.
-
-*/
-
 func createMigrationsTable(ctx context.Context, conn *pgx.Conn) error {
 	stmt := `
 	CREATE TABLE IF NOT EXISTS migrations (
@@ -79,6 +67,7 @@ func getMigrations() (map[string]string, error) {
 	return paths, nil
 }
 
+// TODO: Look into migration hash chains more
 func setupDB(conn *pgx.Conn) error {
 	ctx := context.WithoutCancel(context.Background())
 
@@ -199,5 +188,6 @@ func _appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, has
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("rows affected != 1")
 	}
+
 	return nil
 }

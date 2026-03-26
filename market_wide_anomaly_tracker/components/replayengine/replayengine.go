@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
 type ReplayEnginerServer interface {
@@ -17,32 +18,31 @@ type ReplayEnginerServer interface {
 type replayEngineServer struct {
 	Server *http.Server
 	wg     sync.WaitGroup
+	logger ComponentLogger
 
 	// Children
 	Hub Hub
-
-	logger ComponentLogger
 }
 
 func NewReplayEnginerServer() *replayEngineServer {
-	// 1. Init the multiplexer
+	// Created once at this top level, and then passed down
+	// the component tree
+	database := db.NewDatabase()
+
 	mux := http.NewServeMux()
 
-	// 2. Init the http server
 	server := &http.Server{
 		Addr:    replayEnginerServerSocket,
 		Handler: mux,
 	}
 
-	// 3. Init the replayEngineServer
 	ret := &replayEngineServer{
 		Server: server,
 		wg:     sync.WaitGroup{},
 		logger: NewLogger("ReplayEnginerServer"),
-		Hub:    NewHub(),
+		Hub:    NewHub(database),
 	}
 
-	// 4. Assing handler for /ws endpoint
 	mux.HandleFunc("/ws", ret.handleConnection)
 
 	return ret
