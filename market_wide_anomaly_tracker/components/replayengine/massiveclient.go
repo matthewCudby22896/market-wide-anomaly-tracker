@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/massive-com/client-go/v3/rest"
 	"github.com/massive-com/client-go/v3/rest/gen"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
 /*
@@ -83,7 +84,7 @@ func (c *massiveClient) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Ticker) ([]OHLC, error) {
+func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Ticker) ([]common.OHLC, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",
@@ -106,7 +107,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		log.Fatal(err)
 	}
 
-	aggregateData := make([]OHLC, 0, 4680)
+	aggregateData := make([]common.OHLC, 0, 4680)
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
 	// TODO: Remove
@@ -122,15 +123,15 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		t, _ := item["t"].(float64)
 		v, _ := item["v"].(float64)
 
-		bar := OHLC{
-			symbol: string(ticker),
-			vw:     vw,
-			c:      c,
-			h:      h,
-			l:      l,
-			o:      o,
-			t:      t,
-			v:      v,
+		bar := common.OHLC{
+			Symbol: string(ticker),
+			VW:     vw,
+			C:      c,
+			H:      h,
+			L:      l,
+			O:      o,
+			T:      t,
+			V:      v,
 		}
 		aggregateData = append(aggregateData, bar)
 		i++

@@ -9,19 +9,14 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine"
+	// TODO: Fix
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+
 )
 
-/*
-Need a thread safe access layer.
-
-AIM:
-	- Provide an interface
-*/
-
 type Database interface {
-	BatchStoreOHLC(bars []replayengine.OHLC) error
-	GetCompleteTradingDay(day civil.Date, symbol string) ([]replayengine.OHLC, error)
+	BatchStoreOHLC(bars []common.OHLC) error
+	GetCompleteTradingDay(day civil.Date, symbol string) ([]common.OHLC, error)
 }
 
 // Implements the Database interface
@@ -35,7 +30,7 @@ func NewDatabase() Database {
 	var db *database
 	var err error
 	once.Do(func() {
-		pool, _err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+		pool, _err := pgxpool.New(context.Background(), os.Getenv(DB_URL))
 		err = _err
 
 		db = &database{
@@ -49,12 +44,12 @@ func NewDatabase() Database {
 	return db
 }
 
-func (d *database) BatchStoreOHLC(bars []replayengine.OHLC) error {
+func (d *database) BatchStoreOHLC(bars []common.OHLC) error {
 	// TODO
 	return nil
 }
 
-func (d *database) GetCompleteTradingDay(day civil.Date, symbol string) ([]replayengine.OHLC, error) {
+func (d *database) GetCompleteTradingDay(day civil.Date, symbol string) ([]common.OHLC, error) {
 	// TODO
 	return nil, nil
 }

@@ -2,10 +2,12 @@ package replayengine
 
 import (
 	"context"
+	"os"
 	"sync"
 
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
+
 )
 
 type DataAvailability int
@@ -131,7 +133,12 @@ func (c *dataCoordinator) HydrationTask(date civil.Date, ticker Ticker) {
 		c.outbox <- hydrationFailure{ticker, date}
 	}
 
-	// TODO: Store the data in the Time Series DB
+	err = c.database.BatchStoreOHLC(aggregateData)
+	if err != nil {
+		c.logger.Errorf("failed to store fetch ohlc data for ticker: `%s`", ticker)
+		os.Exit(1)
+	}
+
 	c.logger.Info("%d ohlc bars succesfully fetched", len(aggregateData))
 
 	// Update status

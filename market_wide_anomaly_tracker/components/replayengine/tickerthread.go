@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
 type TickerThread interface {
@@ -75,7 +76,7 @@ func (t *tickerThread) Start() {
 			case <-t.ticks:
 				dummyMsg := BroadcastMessage{
 					Ticker: t.Ticker,
-					Data:   DummyOHLCBar(string(t.Ticker)),
+					Data:   common.DummyOHLCBar(string(t.Ticker)),
 				}
 
 				t.outbox <- dummyMsg
