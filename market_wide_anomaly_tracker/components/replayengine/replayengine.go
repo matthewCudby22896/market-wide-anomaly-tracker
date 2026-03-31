@@ -27,7 +27,7 @@ type replayEngineServer struct {
 func NewReplayEnginerServer() *replayEngineServer {
 	// Created once at this top level, and then passed down
 	// the component tree
-	database := db.NewDatabase()
+	database := db.NewDatabase(DB_URL)
 
 	mux := http.NewServeMux()
 

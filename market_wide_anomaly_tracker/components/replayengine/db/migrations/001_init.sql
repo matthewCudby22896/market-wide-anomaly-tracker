@@ -1,11 +1,12 @@
 CREATE TABLE ohlc_bars (
-    ticker TEXT,
+    symbol TEXT,
     t      BIGINT,
     o      REAL,
     h      REAL,
     l      REAL,
     c      REAL,
+    n      BIGINT,
     v      REAL,
     vw     REAL,
-    PRIMARY KEY (ticker, t)
+    PRIMARY KEY (symbol, t)
 );

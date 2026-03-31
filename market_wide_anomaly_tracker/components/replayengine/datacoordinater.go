@@ -124,7 +124,9 @@ func (c *dataCoordinator) SetOutbox(outbox chan any) {
 func (c *dataCoordinator) HydrationTask(date civil.Date, ticker Ticker) {
 	defer c.wg.Done()
 
-	aggregateData, err := c.massiveClient.FetchDayData(c.Ctx, date, ticker)
+	ctx := context.WithoutCancel(c.Ctx)
+
+	bars, err := c.massiveClient.FetchDayData(c.Ctx, date, ticker)
 
 	if err != nil {
 		c.logger.Info("hydration task failed for %s", ticker)
@@ -133,13 +135,13 @@ func (c *dataCoordinator) HydrationTask(date civil.Date, ticker Ticker) {
 		c.outbox <- hydrationFailure{ticker, date}
 	}
 
-	err = c.database.BatchStoreOHLC(aggregateData)
+	err = c.database.BatchStoreBars(ctx, bars)
 	if err != nil {
 		c.logger.Errorf("failed to store fetch ohlc data for ticker: `%s`", ticker)
 		os.Exit(1)
 	}
 
-	c.logger.Info("%d ohlc bars succesfully fetched", len(aggregateData))
+	c.logger.Info("%d ohlc bars succesfully fetched", len(bars))
 
 	// Update status
 	c.updateStatus(ticker, date.String(), READY)

@@ -10,22 +10,10 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var DB_URL = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
-
-func getConnection() (*pgx.Conn, error) {
-	/*
-			*pgc.Conn represents a single connection to the database and is not
-		concurrency sage. Use github.com/jackc/pgx/v5/pgxpool for a concurrency
-		safe connection pool.
-	*/
-	conn, err := pgx.Connect(context.Background(), DB_URL)
-
-	return conn, err
-}
-
-func createMigrationsTable(ctx context.Context, conn *pgx.Conn) error {
+func createMigrationsTable(ctx context.Context, conn *pgxpool.Conn) error {
 	stmt := `
 	CREATE TABLE IF NOT EXISTS migrations (
 		id         SERIAL PRIMARY KEY,
@@ -68,7 +56,7 @@ func getMigrations() (map[string]string, error) {
 }
 
 // TODO: Look into migration hash chains more
-func setupDB(conn *pgx.Conn) error {
+func applyMigrations(conn *pgxpool.Conn) error {
 	ctx := context.WithoutCancel(context.Background())
 
 	// 1. Create migrations table if it doesn't exist

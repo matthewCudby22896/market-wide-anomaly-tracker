@@ -91,13 +91,15 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		Limit:    rest.Ptr(50000),
 	}
 
+	open := strconv.FormatInt(common.GetMarketOpenUnixMilli(day), 10)
+	close := strconv.FormatInt(common.GetMarketCloseUnixMilli(day), 10)
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
 		string(ticker),
 		5,
 		gen.Second,
-		c.getMarketOpenUnixMilli(day),
-		c.getMarketCloseUnixMilli(day),
+		open,
+		close,
 		params,
 	)
 	if err != nil {
@@ -115,23 +117,25 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 	for iter.Next() {
 		item := iter.Item()
 
-		vw, _ := item["vw"].(float64)
-		c, _ := item["c"].(float64)
+		t, _ := item["t"].(float64)
+		o, _ := item["o"].(float64)
 		h, _ := item["h"].(float64)
 		l, _ := item["l"].(float64)
-		o, _ := item["o"].(float64)
-		t, _ := item["t"].(float64)
+		c, _ := item["c"].(float64)
+		n, _ := item["n"].(float64)
 		v, _ := item["v"].(float64)
+		vw, _ := item["vw"].(float64)
 
 		bar := common.OHLC{
 			Symbol: string(ticker),
-			VW:     vw,
-			C:      c,
+			T:      int64(t), // TODO: Check this is okay
+			O:      o,
 			H:      h,
 			L:      l,
-			O:      o,
-			T:      t,
+			C:      c,
+			N:      int64(n),
 			V:      v,
+			VW:     vw,
 		}
 		aggregateData = append(aggregateData, bar)
 		i++
@@ -142,34 +146,4 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 	fmt.Printf("len arr: %d\n", len(aggregateData))
 
 	return aggregateData, nil
-}
-
-func (c *massiveClient) getMarketOpenUnixMilli(day civil.Date) string {
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		log.Fatal(err)
-	}
-	t := time.Date(
-		day.Year,
-		day.Month,
-		day.Day,
-		9, 30, 0, 0, // 9:30:00.000000
-		location,
-	).UnixMicro()
-	return strconv.Itoa(int(t))
-}
-
-func (c *massiveClient) getMarketCloseUnixMilli(day civil.Date) string {
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		log.Fatal(err)
-	}
-	t := time.Date(
-		day.Year,
-		day.Month,
-		day.Day,
-		16, 0, 0, 0,
-		location,
-	).UnixMicro()
-	return strconv.Itoa(int(t))
 }
