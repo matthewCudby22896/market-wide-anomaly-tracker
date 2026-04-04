@@ -84,7 +84,7 @@ func (c *massiveClient) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Ticker) ([]common.OHLC, error) {
+func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Ticker) ([]common.Bar, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",
@@ -109,7 +109,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		log.Fatal(err)
 	}
 
-	aggregateData := make([]common.OHLC, 0, 4680)
+	aggregateData := make([]common.Bar, 0, 4680)
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
 	// TODO: Remove
@@ -126,7 +126,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		v, _ := item["v"].(float64)
 		vw, _ := item["vw"].(float64)
 
-		bar := common.OHLC{
+		bar := common.Bar{
 			Symbol: string(ticker),
 			T:      int64(t), // TODO: Check this is okay
 			O:      o,

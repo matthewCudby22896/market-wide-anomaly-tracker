@@ -14,8 +14,8 @@ import (
 )
 
 type Database interface {
-	BatchStoreBars(ctx context.Context, bars common.AggBars) error
-	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) ([]common.OHLC, error)
+	BatchStoreBars(ctx context.Context, bars common.Series) error
+	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error)
 }
 
 // Implements the Database interface
@@ -53,7 +53,7 @@ func (db *database) getConn(ctx context.Context) (*pgxpool.Conn, error) {
 
 // Note - future optimisation: This could likely be quicker if I implement the
 // CopyFromSource interface (to avoid buffering in memory)
-func (db *database) BatchStoreBars(ctx context.Context, bars common.AggBars) error {
+func (db *database) BatchStoreBars(ctx context.Context, bars common.Series) error {
 	conn, err := db.getConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -85,7 +85,7 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.AggBars) err
 	return nil
 }
 
-func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) ([]common.OHLC, error) {
+func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error) {
 	conn, err := db.getConn(ctx)
 	defer conn.Release()
 	if err != nil {
@@ -109,17 +109,19 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
-	var fn pgx.RowToFunc[common.OHLC] = func(row pgx.CollectableRow) (common.OHLC, error) {
-		var bar common.OHLC
+	var fn pgx.RowToFunc[common.Bar] = func(row pgx.CollectableRow) (common.Bar, error) {
+		var bar common.Bar
 		err := row.Scan(&bar.Symbol, &bar.T, &bar.O, &bar.H, &bar.L, &bar.C, &bar.N, &bar.V, &bar.VW)
 		if err != nil {
-			return common.OHLC{}, err
+			return common.Bar{}, err
 		}
 		return bar, nil
 	}
-	ohlc_bars, err := pgx.CollectRows(rows, fn)
+	var bars common.Series
+	bars, err = pgx.CollectRows(rows, fn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect rows: %w", err)
 	}
-	return ohlc_bars, nil
+
+	return bars, nil
 }

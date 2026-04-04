@@ -12,7 +12,7 @@ package common
 //     PRIMARY KEY (ticker, t)
 // );
 
-type OHLC struct {
+type Bar struct {
 	Symbol string  // e.g. "AAPL"
 	T      int64   // timestamp
 	O      float64 // open
@@ -24,15 +24,15 @@ type OHLC struct {
 	VW     float64 // volume weighted average price
 }
 
-func DummyOHLCBar(symbol string) OHLC {
-	return OHLC{
+func DummyOHLCBar(symbol string) Bar {
+	return Bar{
 		Symbol: symbol,
 	}
 }
 
-type AggBars []OHLC
+type Series []Bar
 
-func (a AggBars) ToRows() [][]any {
+func (a Series) ToRows() [][]any {
 	matrix := make([][]any, len(a))
 
 	for i := range matrix {
@@ -52,7 +52,7 @@ func (a AggBars) ToRows() [][]any {
 	return matrix
 }
 
-func (a AggBars) ColNames() []string {
+func (a Series) ColNames() []string {
 	return []string{
 		"symbol",
 		"t",

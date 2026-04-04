@@ -110,14 +110,9 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	diff := close - open
 	delta := diff / nBars
 
-	s.T().Logf("open: %d\n", open)
-	s.T().Logf("close: %d\n", close)
-	s.T().Logf("diff: %d\n", diff)
-	s.T().Logf("delta: %d\n", delta)
-
-	bars := make(common.AggBars, nBars)
+	bars := make(common.Series, nBars)
 	for i := range nBars {
-		bars[i] = common.OHLC{
+		bars[i] = common.Bar{
 			Symbol: symbol,
 			T:      open + delta*i,
 		}
@@ -127,12 +122,10 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	s.Require().NoError(err)
 
 	retBars, err := s.db.GetCompleteTradingDay(s.ctx, day, symbol)
+	s.T().Logf("%#v\n", retBars[0])
+	s.T().Logf("%#v\n", bars[0])
 	s.Require().NoError(err)
-	s.Require().NotEmpty(retBars)
-
-	for _, bar := range retBars {
-		s.T().Logf("%v\n", bar)
-	}
+	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
 }
 
 func TestDBTestSuite(t *testing.T) {
