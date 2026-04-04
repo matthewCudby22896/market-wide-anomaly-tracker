@@ -7,7 +7,6 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
-
 )
 
 type DataAvailability int
@@ -20,7 +19,7 @@ const (
 
 type DataCoordinator interface {
 	LifeCycle
-	IsReady(t Ticker, d civil.Date) bool
+	IsReady(t Symbol, d civil.Date) bool
 	SetOutbox(chan any)
 }
 
@@ -36,7 +35,7 @@ type dataCoordinator struct {
 
 	// Internal state
 	statusMapMu sync.Mutex
-	statusMap   map[string]map[Ticker]DataAvailability
+	statusMap   map[string]map[Symbol]DataAvailability
 
 	// Internal channels
 	dataQueryChan chan dataQuery
@@ -45,18 +44,18 @@ type dataCoordinator struct {
 
 // Structs for internal use:
 type dataQuery struct {
-	ticker Ticker
+	Symbol Symbol
 	date   civil.Date
 }
 
 // Structs for external messaging
 type hydrationSuccess struct {
-	Ticker Ticker
+	Symbol Symbol
 	Date   civil.Date
 }
 
 type hydrationFailure struct {
-	Ticker Ticker
+	Symbol Symbol
 	Date   civil.Date
 }
 
@@ -70,7 +69,7 @@ func NewDataCoordinator(database db.Database) *dataCoordinator {
 		database:      database,
 		massiveClient: NewMassiveClient(),
 		statusMapMu:   sync.Mutex{},
-		statusMap:     make(map[string]map[Ticker]DataAvailability),
+		statusMap:     make(map[string]map[Symbol]DataAvailability),
 		dataQueryChan: make(chan dataQuery, 1024),
 		outbox:        nil, // Assigned post-hoc (by parent)
 	}
@@ -85,14 +84,14 @@ func (c *dataCoordinator) Start() {
 		for {
 			select {
 			case query := <-c.dataQueryChan:
-				state := c.getState(query.ticker, query.date.String())
+				state := c.getState(query.Symbol, query.date.String())
 				if !(state == READY || state == HYDRATING) {
 					// Launch Hydration Task
 					c.wg.Add(1)
-					go c.HydrationTask(query.date, query.ticker)
+					go c.HydrationTask(query.date, query.Symbol)
 
 					// Update status -> HYDRATING
-					c.updateStatus(query.ticker, query.date.String(), HYDRATING)
+					c.updateStatus(query.Symbol, query.date.String(), HYDRATING)
 				}
 
 			case <-c.Ctx.Done():
@@ -121,41 +120,40 @@ func (c *dataCoordinator) SetOutbox(outbox chan any) {
 	c.outbox = outbox
 }
 
-func (c *dataCoordinator) HydrationTask(date civil.Date, ticker Ticker) {
+func (c *dataCoordinator) HydrationTask(date civil.Date, symbol Symbol) {
 	defer c.wg.Done()
 
 	ctx := context.WithoutCancel(c.Ctx)
 
-	bars, err := c.massiveClient.FetchDayData(c.Ctx, date, ticker)
+	bars, err := c.massiveClient.FetchDayData(c.Ctx, date, symbol)
 
 	if err != nil {
-		c.logger.Info("hydration task failed for %s", ticker)
+		c.logger.Info("hydration task failed for %s: %v", symbol, err)
 
 		// Signal back to the Hub that the task failed
-		c.outbox <- hydrationFailure{ticker, date}
+		c.outbox <- hydrationFailure{symbol, date}
 	}
 
 	err = c.database.BatchStoreBars(ctx, bars)
 	if err != nil {
-		c.logger.Errorf("failed to store fetch ohlc data for ticker: `%s`", ticker)
+		c.logger.Errorf("failed to store fetch ohlc data for ticker: `%s`: %v", symbol, err)
 		os.Exit(1)
 	}
 
 	c.logger.Info("%d ohlc bars succesfully fetched", len(bars))
 
 	// Update status
-	c.updateStatus(ticker, date.String(), READY)
+	c.updateStatus(symbol, date.String(), READY)
 
 	// Signal to Hub that data is Ready
-	c.outbox <- hydrationSuccess{ticker, date}
-
+	c.outbox <- hydrationSuccess{symbol, date}
 }
 
-func (c *dataCoordinator) getState(ticker Ticker, date string) DataAvailability {
+func (c *dataCoordinator) getState(ticker Symbol, date string) DataAvailability {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[Ticker]DataAvailability)
+		c.statusMap[date] = make(map[Symbol]DataAvailability)
 	}
 	state, ok := c.statusMap[date][ticker]
 	if !ok {
@@ -164,16 +162,16 @@ func (c *dataCoordinator) getState(ticker Ticker, date string) DataAvailability 
 	return state
 }
 
-func (c *dataCoordinator) updateStatus(ticker Ticker, date string, status DataAvailability) {
+func (c *dataCoordinator) updateStatus(ticker Symbol, date string, status DataAvailability) {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[Ticker]DataAvailability)
+		c.statusMap[date] = make(map[Symbol]DataAvailability)
 	}
 	c.statusMap[date][ticker] = status
 }
 
-func (c *dataCoordinator) IsReady(t Ticker, d civil.Date) bool {
+func (c *dataCoordinator) IsReady(t Symbol, d civil.Date) bool {
 	state := c.getState(t, d.String())
 
 	if state == READY {

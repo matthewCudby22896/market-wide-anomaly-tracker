@@ -17,7 +17,7 @@ func main() {
 	}
 	ticker := "SPY"
 	ctx := context.Context(context.Background())
-	client.FetchDayData(ctx, day, replayengine.Ticker(ticker))
+	client.FetchDayData(ctx, day, replayengine.Symbol(ticker))
 }
 
 // func main() {

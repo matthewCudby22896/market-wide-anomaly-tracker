@@ -10,7 +10,6 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -19,7 +18,6 @@ import (
 type dbTestSuite struct {
 	suite.Suite
 	ctx       context.Context
-	conn      *pgxpool.Conn
 	container testcontainers.Container
 	dbUrl     string
 	db        *database
@@ -33,14 +31,11 @@ func (s *dbTestSuite) SetupSuite() {
 	s.dbUrl = url
 
 	// 2. Create the `database` using the url and getConn for convenience
-	s.db = NewDatabase(s.dbUrl)
-	conn, err := s.db.getConn(s.ctx)
-	s.Require().NoError(err)
-	s.conn = conn
+	s.db = RequireNewDatabase(s.dbUrl)
 
 	// 3. Apply migrations
-	err = applyMigrations(s.conn)
-	s.Require().NoError(err)
+	s.db.RequireApplyMigrations()
+	s.db.RequireApplyMigrations()
 
 	// 4. Run tests...
 }
@@ -84,18 +79,12 @@ func (suite *dbTestSuite) setupTestDB() string {
 	return url
 }
 
-func (suite *dbTestSuite) TestPingDB() {
-	err := suite.conn.Ping(suite.ctxWithTimeout())
-
-	suite.Assert().NoError(err, "failed to ping db: %#v", err)
-}
-
-func (s *dbTestSuite) TestGetMigratons() {
-	migrations, err := getMigrations()
-	s.T().Logf("migrations len(%d): %#v\n", len(migrations), migrations)
-	s.Assert().NoError(err)
-	s.Assert().Len(migrations, 1)
-}
+// func (s *dbTestSuite) TestGetMigratons() {
+// 	migrations, err := getMigrations()
+// 	s.T().Logf("migrations len(%d): %#v\n", len(migrations), migrations)
+// 	s.Assert().NoError(err)
+// 	s.Assert().Len(migrations, 1)
+// }
 
 func (s *dbTestSuite) TestBatchStoreBars() {
 	symbol := "RR"
@@ -122,8 +111,6 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	s.Require().NoError(err)
 
 	retBars, err := s.db.GetCompleteTradingDay(s.ctx, day, symbol)
-	s.T().Logf("%#v\n", retBars[0])
-	s.T().Logf("%#v\n", bars[0])
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
 }

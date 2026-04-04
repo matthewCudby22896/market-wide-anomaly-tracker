@@ -15,7 +15,7 @@ import (
 
 type Database interface {
 	BatchStoreBars(ctx context.Context, bars common.Series) error
-	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error)
+	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error)
 }
 
 // Implements the Database interface
@@ -25,20 +25,18 @@ type database struct {
 
 var once sync.Once
 
-func NewDatabase(dbUrl string) *database {
+func RequireNewDatabase(connString string) *database {
 	var db *database
-	var err error
 	once.Do(func() {
-		pool, _err := pgxpool.New(context.Background(), dbUrl)
-		err = _err
+		pool, err := pgxpool.New(context.Background(), connString)
+		if err != nil {
+			log.Fatalf("Failed to init database: %#v", err)
+		}
 
 		db = &database{
 			connPool: pool,
 		}
 	})
-	if err != nil {
-		log.Fatalf("Failed to init database: %#v", err)
-	}
 	if db == nil {
 		log.Fatalf("NewDatabase() called > 1 times")
 	}

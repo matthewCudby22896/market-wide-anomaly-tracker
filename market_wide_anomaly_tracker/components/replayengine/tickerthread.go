@@ -21,14 +21,14 @@ type tickerThread struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	Ticker    Ticker
+	Ticker    Symbol
 	Date      civil.Date
 	logger    ComponentLogger
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
 }
 
-func NewTickerThread(owner Hub, ticker Ticker, date civil.Date) *tickerThread {
+func NewTickerThread(owner Hub, ticker Symbol, date civil.Date) *tickerThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &tickerThread{

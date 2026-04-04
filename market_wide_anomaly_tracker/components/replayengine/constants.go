@@ -2,7 +2,7 @@ package replayengine
 
 const replayEnginerServerSocket = ":8080"
 
-type Ticker string
+type Symbol string
 
 type Message struct {
 	Action  string   `json:"action"`
@@ -11,11 +11,11 @@ type Message struct {
 
 type SubscriptionRequest struct {
 	Client  *client
-	Tickers []Ticker
+	Tickers []Symbol
 }
 
 type BroadcastMessage struct {
-	Ticker Ticker
+	Ticker Symbol
 	Data   any
 }
 

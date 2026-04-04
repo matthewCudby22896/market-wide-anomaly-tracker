@@ -103,10 +103,10 @@ func (c *client) ListenerThread() {
 	}
 }
 
-func toTypedTicker(arr []string) []Ticker {
-	typedTickers := make([]Ticker, len(arr))
+func toTypedTicker(arr []string) []Symbol {
+	typedTickers := make([]Symbol, len(arr))
 	for i, ticker := range arr {
-		typedTickers[i] = Ticker(ticker)
+		typedTickers[i] = Symbol(ticker)
 	}
 	return typedTickers
 }

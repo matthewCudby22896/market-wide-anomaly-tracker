@@ -1,13 +1,13 @@
 package db
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
+	"embed"
 	"fmt"
-	"os"
-	"path/filepath"
+	"log"
 	"slices"
+	"encoding/hex"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,49 +26,38 @@ func createMigrationsTable(ctx context.Context, conn *pgxpool.Conn) error {
 	return err
 }
 
-func getMigrations() (map[string]string, error) {
-	linesTxt := make([]string, 0)
-	file, err := os.Open("migrations.txt")
+//go:embed migrations.txt
+var migrationsTxt string
+
+//go:embed migrations/*.sql
+var migrationsFiles embed.FS
+
+func (db *database) RequireApplyMigrations() {
+	err := db.applyMigrations()
 	if err != nil {
-		return nil, err
+		log.Fatalf("Failed to apply migrations: %v", err)
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		linesTxt = append(linesTxt, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	paths := make(map[string]string, len(linesTxt))
-	for _, f := range linesTxt {
-		absPath, err := filepath.Abs("migrations/" + f)
-		if err != nil {
-			return nil, err
-		}
-		paths[f] = absPath
-	}
-
-	return paths, nil
 }
 
 // TODO: Look into migration hash chains more
-func applyMigrations(conn *pgxpool.Conn) error {
+func (db *database) applyMigrations() error {
 	ctx := context.WithoutCancel(context.Background())
 
+	conn, err := db.getConn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection: %#v ", err)
+	}
+
 	// 1. Create migrations table if it doesn't exist
-	err := createMigrationsTable(ctx, conn)
+	err = createMigrationsTable(ctx, conn)
 	if err != nil {
 		return fmt.Errorf("failed to setup db: %#v ", err)
 	}
 
 	// 2. Get list of migrations
-	migrations, err := getMigrations()
+	migrations, err := migrationsFiles.ReadDir("migrations")
 	if err != nil {
-		return fmt.Errorf("failed to get migrations: %#v ", err)
+		return fmt.Errorf("failed to read embedded migrations dir: %#v ", err)
 	}
 
 	// 3. Apply migrations
@@ -82,38 +71,43 @@ func applyMigrations(conn *pgxpool.Conn) error {
 
 	prevHash := make([]byte, 32)
 
-	for mName, mPath := range migrations {
-		contents, err := os.ReadFile(mPath)
+	for _, entry := range migrations {
+		name := entry.Name()
+		content, err := migrationsFiles.ReadFile("migrations/" + name)
 		if err != nil {
-			return fmt.Errorf("failed to read migration file %s: %#v", mName, err)
+			return fmt.Errorf("failed to read migration file %s: %w", name, err)
 		}
 
-		currentHash, _ := _hash(prevHash, contents)
-		mApplied, storedHash, err := _migrationApplied(ctx, tx, mName)
+		currentHash, _ := hash(content, prevHash)
+		isApplied, storedHash, err := migrationIsApplied(ctx, tx, name)
 		if err != nil {
-			return fmt.Errorf("_migrationsApplied err: %#v", err)
+			return fmt.Errorf("err whilst checking if migration has been applied: %w", err)
 		}
 
-		if mApplied {
+		fmt.Printf("%x\n", currentHash)
+		fmt.Printf("%x\n", storedHash)
+		if isApplied {
 			if !slices.Equal(currentHash, storedHash) {
-				return fmt.Errorf("stored hash doesn't match calculated hash for migration: `%s`", mName)
+				return fmt.Errorf("stored hash doesn't match calculated hash for migration: `%s`", name)
 			}
 
 		} else {
-			stmt := string(contents)
+			stmt := string(content)
 
 			_, err := tx.Exec(ctx, stmt)
 			if err != nil {
-				return fmt.Errorf("failed to apply migration `%s`: %#v", mName, err)
+				return fmt.Errorf("failed to apply migration `%s`: %w", name, err)
 			}
 
-			err = _appendMigration(ctx, tx, mName, prevHash, currentHash)
+			err = appendMigration(ctx, tx, name, prevHash, currentHash)
 			if err != nil {
-				return fmt.Errorf("failed to append to migration table: %#v", err)
+				return fmt.Errorf("failed to append to migration table: %w", err)
 			}
 		}
 		prevHash = currentHash
+
 	}
+
 	err = tx.Commit(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to commit tx: %#v ", err)
@@ -122,7 +116,7 @@ func applyMigrations(conn *pgxpool.Conn) error {
 	return nil
 }
 
-func _hash(migrationContents, prevMigrationHash []byte) ([]byte, error) {
+func hash(migrationContents, prevMigrationHash []byte) ([]byte, error) {
 	h := sha256.New()
 
 	if _, err := h.Write(prevMigrationHash); err != nil {
@@ -134,22 +128,27 @@ func _hash(migrationContents, prevMigrationHash []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func _migrationApplied(ctx context.Context, tx pgx.Tx, migrationName string) (bool, []byte, error) {
+func migrationIsApplied(ctx context.Context, tx pgx.Tx, migrationName string) (bool, []byte, error) {
 	stmt := "SELECT name, hash FROM migrations WHERE name = $1"
-	var name string
-	var currentHash string
 	rows, err := tx.Query(ctx, stmt, migrationName)
 	if err != nil {
 		return false, []byte{}, err
 	}
-	rows.Scan(&name, &currentHash)
+	var name string
+	var currentString string
+	rows.Next()
+	rows.Scan(&name, &currentString)
 	if rows.Next() {
 		return false, []byte{}, fmt.Errorf(">1 row where name == `%s`", migrationName)
 	}
-	return (name == migrationName), []byte(currentHash), nil
+	hashBytes, err := hex.DecodeString(currentString)
+	if err != nil {
+		return false, []byte{}, fmt.Errorf("failed to decode stored hash string: %w", err)
+	}
+	return (name == migrationName), hashBytes, nil
 }
 
-func _appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash []byte) error {
+func appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash []byte) error {
 	if len(prevHash) != 32 {
 		return fmt.Errorf("`prevHash` was len %d, expecting len 32", len(prevHash))
 	}
@@ -162,6 +161,7 @@ func _appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, has
 	`
 	prevHashStr := fmt.Sprintf("%x", prevHash)
 	hashStr := fmt.Sprintf("%x", hash)
+	fmt.Printf("storing hash: %s\n", hashStr)
 	fmt.Printf("prev: %s\ncurr: %s\n", prevHashStr, hashStr)
 	tag, err := tx.Exec(
 		ctx,
