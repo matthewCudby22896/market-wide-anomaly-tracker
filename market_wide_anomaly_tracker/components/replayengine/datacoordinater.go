@@ -42,6 +42,7 @@ type dataCoordinator struct {
 	outbox        chan any
 }
 
+
 // Structs for internal use:
 type dataQuery struct {
 	Symbol Symbol
@@ -76,8 +77,12 @@ func NewDataCoordinator(database db.Database) *dataCoordinator {
 }
 
 func (c *dataCoordinator) Start() {
+	// Init c.statusMap based of db state
+
+
 	c.logger.LogStartChild("MassiveClient")
 	c.massiveClient.Start()
+
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -182,3 +187,16 @@ func (c *dataCoordinator) IsReady(t Symbol, d civil.Date) bool {
 
 	return false
 }
+
+/*
+THOUGHTS
+
+- Want to avoid refetching data and attempting to insert already present data
+
+- Could add new hydration status table to the database
+
+Process would be:
+	On boot:
+		- Load all fetched statuses from db and use it to init the status map
+
+*/

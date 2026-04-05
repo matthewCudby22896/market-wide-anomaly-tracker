@@ -12,6 +12,12 @@ type Bar struct {
 	VW     float64 // volume weighted average price
 }
 
+
+type HydrationStatusRow struct {
+	Symbol string
+	Date   string
+}
+
 func DummyOHLCBar(symbol string) Bar {
 	return Bar{
 		Symbol: symbol,

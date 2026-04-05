@@ -83,6 +83,7 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.Series) erro
 	return nil
 }
 
+// TODO: Rename
 func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error) {
 	conn, err := db.getConn(ctx)
 	defer conn.Release()
@@ -123,4 +124,42 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 	}
 
 	return bars, nil
+}
+
+// CREATE TABLE hydration_state_1sec (
+//
+//	symbol TEXT,
+//	day    DATE,
+//	PRIMARY KEY (symbol, day)
+//
+// )
+func (db *database) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
+	conn, err := db.getConn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection: %w", err)
+	}
+
+	stmt := `SELECT symbol, date::TEXT FROM hydration_state_1sec`
+
+	rows, err := conn.Query(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load hydration state: %w", err)
+	}
+
+	res, err := pgx.CollectRows(
+		rows,
+		func(row pgx.CollectableRow) (common.HydrationStatusRow, error) {
+			var v common.HydrationStatusRow
+			err := row.Scan(&v.Symbol, &v.Date)
+			if err != nil {
+				return common.HydrationStatusRow{}, err
+			}
+			return v, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect rows: %w", err)
+	}
+
+	return res, nil
 }

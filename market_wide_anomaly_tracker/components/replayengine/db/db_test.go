@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -99,13 +100,36 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 			T:      open + delta*i,
 		}
 	}
+	slices.Reverse(bars)
 
 	err := s.db.BatchStoreBars(context.Background(), bars)
 	s.Require().NoError(err)
 
 	retBars, err := s.db.GetCompleteTradingDay(s.ctx, day, symbol)
+
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
+}
+
+func (s *dbTestSuite) TestLoadHydrationState() {
+	// ISO 8601
+	// YYYY-MM-DD
+	ctx := s.ctxWithTimeout()
+	conn, err := s.db.getConn(ctx)
+	s.Require().NoError(err)
+
+	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
+	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
+	s.Require().NoError(err)
+
+	res, err := s.db.LoadHydrationState(ctx)
+	s.Require().NoError(err)
+	s.Assert().Len(res, 1)
+	expected := common.HydrationStatusRow{
+		Symbol : "AAPL",
+		Date : "2026-03-20",
+	}
+	s.Assert().Equal(expected, res[0])
 }
 
 func TestDBTestSuite(t *testing.T) {

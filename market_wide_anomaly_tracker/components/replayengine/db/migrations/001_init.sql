@@ -11,8 +11,8 @@ CREATE TABLE bars_1sec (
     PRIMARY KEY (symbol, t)
 );
 
-CREATE TABLE hydration_1sec (
-    symbol TEXT,
-    day    DATE,
-    PRIMARY KEY (symbol, day)
+CREATE TABLE hydration_state_1sec (
+    symbol  TEXT,
+    date    DATE,
+    PRIMARY KEY (symbol, date)
 )
