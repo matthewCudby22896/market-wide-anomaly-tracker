@@ -12,8 +12,6 @@ import (
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
-var DEFAULT_DAY = civil.Date{Year: 2025, Month: 3, Day: 20}
-var DEFAULT_SPEEDUP int = 2
 
 type HubReqType int
 
@@ -291,7 +289,7 @@ func (h *hub) StartTickerThread(ticker Symbol, date civil.Date) *tickerThread {
 	h.logger.LogStartChild(fmt.Sprintf("TickerThread-%s", ticker))
 
 	// 1. Init ticker thread
-	thread := NewTickerThread(h, ticker, date)
+	thread := NewTickerThread(h, ticker, date, h.Database)
 	thread.outbox = h.broadcast
 
 	// 2. Register it with the clock s.t. it recieves ticks

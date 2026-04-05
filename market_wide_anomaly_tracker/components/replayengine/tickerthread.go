@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
 type TickerThread interface {
@@ -26,9 +27,10 @@ type tickerThread struct {
 	logger    ComponentLogger
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
+	db        db.Database
 }
 
-func NewTickerThread(owner Hub, ticker Symbol, date civil.Date) *tickerThread {
+func NewTickerThread(owner Hub, ticker Symbol, date civil.Date, db db.Database) *tickerThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &tickerThread{
@@ -39,6 +41,7 @@ func NewTickerThread(owner Hub, ticker Symbol, date civil.Date) *tickerThread {
 		Ticker:    ticker,
 		Date:      date,
 		ticks:     make(chan int64),
+		db:        db,
 		outbox:    nil, // Initialised by parent
 	}
 }
@@ -50,7 +53,9 @@ func (t *tickerThread) Shutdown() {
 	// Shutdown self
 	t.CancelCtx()
 
+	t.logger.Info("before wg")
 	t.wg.Wait()
+	t.logger.Info("after wg")
 	t.logger.LogShutdown()
 }
 
@@ -60,7 +65,7 @@ func (t *tickerThread) AsynShutdown() {
 
 func (t *tickerThread) Start() {
 	if t.outbox == nil {
-		t.logger.Info("fatal : t.outbox was nil")
+		t.logger.Errorf("fatal : t.outbox was nil")
 		os.Exit(1)
 	}
 
@@ -68,18 +73,46 @@ func (t *tickerThread) Start() {
 	go func() {
 		defer t.wg.Done()
 
+		// Currently returns in DESC order
+		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.Date, string(t.Ticker))
+		if err != nil {
+			t.logger.Errorf("ticker failed to fetch data for symbol '%s': %s", t.Ticker, err)
+			t.Shutdown()
+			return
+		}
+
+		// Wait for a tick
+		tick := <-t.ticks
+
+		// Trim out-of-date bars
+		for i := len(series) - 1; i >= 0; i-- {
+			if series[i].T >= tick {
+				series = series[:i+1]
+				break
+			}
+		}
+
 		for {
 			select {
 			case <-t.Ctx.Done():
 				return
 
-			case <-t.ticks:
-				dummyMsg := BroadcastMessage{
-					Ticker: t.Ticker,
-					Data:   common.DummyOHLCBar(string(t.Ticker)),
-				}
+			case tick = <-t.ticks:
+				// DEBUGGING:
+				timestamp := common.UnixMilliToTimestampNYC(tick)
+				t.logger.Info(timestamp)
 
-				t.outbox <- dummyMsg
+				// Send all bars with T <= tick
+				for len(series) > 0 && series[len(series)-1].T <= tick {
+					msg := BroadcastMessage{
+						t.Ticker,
+						series[len(series)-1],
+					}
+
+					series = series[:len(series)-1]
+
+					t.outbox <- msg
+				}
 			}
 		}
 	}()

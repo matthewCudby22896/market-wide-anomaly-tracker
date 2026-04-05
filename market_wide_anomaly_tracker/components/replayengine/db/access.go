@@ -96,6 +96,7 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 		WHERE t >= $1
 		AND t <= $2
 		AND symbol = $3
+		ORDER BY t DESC
 	`
 	rows, err := conn.Query(
 		ctx,

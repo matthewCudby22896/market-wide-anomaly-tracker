@@ -1,17 +1,5 @@
 package common
 
-// CREATE TABLE ohlc_bars (
-//     symbol TEXT,
-//     t      BIGINT,
-//     o      REAL,
-//     h      REAL,
-//     l      REAL,
-//     c      REAL,
-//     v      REAL,
-//     vw     REAL,
-//     PRIMARY KEY (ticker, t)
-// );
-
 type Bar struct {
 	Symbol string  // e.g. "AAPL"
 	T      int64   // timestamp

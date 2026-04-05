@@ -79,13 +79,6 @@ func (suite *dbTestSuite) setupTestDB() string {
 	return url
 }
 
-// func (s *dbTestSuite) TestGetMigratons() {
-// 	migrations, err := getMigrations()
-// 	s.T().Logf("migrations len(%d): %#v\n", len(migrations), migrations)
-// 	s.Assert().NoError(err)
-// 	s.Assert().Len(migrations, 1)
-// }
-
 func (s *dbTestSuite) TestBatchStoreBars() {
 	symbol := "RR"
 	day := civil.Date{

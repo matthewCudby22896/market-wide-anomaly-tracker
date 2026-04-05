@@ -36,3 +36,13 @@ func GetMarketCloseUnixMilli(day civil.Date) int64 {
 	).UnixMilli()
 	return t
 }
+
+func UnixMilliToTimestampNYC(unixMilli int64) string {
+	// UnixMilli returns the local Time corresponding to the given Unix time,
+	// msec milliseconds since January 1, 1970 UTC.
+	t := time.UnixMilli(unixMilli)
+	loc, _ := time.LoadLocation("America/New_York")
+	nyTime := t.In(loc)
+	timestampStr := nyTime.Format("2006-01-02 03:04:05 PM MST")
+	return timestampStr
+}

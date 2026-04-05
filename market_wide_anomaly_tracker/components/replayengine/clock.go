@@ -22,12 +22,12 @@ type clock struct {
 	isPaused bool
 
 	subscribersMu sync.Mutex
-	subscribers map[chan<- int64]struct{}
+	subscribers   map[chan<- int64]struct{}
 }
 
 type clockSettings struct {
 	startTime time.Time
-	speedup   int
+	speedup   float32
 }
 
 func defaultStartTime(day civil.Date) time.Time {
@@ -42,7 +42,7 @@ func defaultStartTime(day civil.Date) time.Time {
 	)
 }
 
-func NewClock(day civil.Date, speedup int) *clock {
+func NewClock(day civil.Date, speedup float32) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := clockSettings{
@@ -81,7 +81,8 @@ func (c *clock) Start() {
 					continue
 				}
 
-				globalTime += 1000 // 1 Sec (1000 Millisecond)
+				// 1 Sec (1000 Millisecond)
+				globalTime += 1000
 
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
