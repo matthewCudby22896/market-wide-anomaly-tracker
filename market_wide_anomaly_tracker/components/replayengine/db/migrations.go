@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"slices"
-	"encoding/hex"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,9 +25,6 @@ func createMigrationsTable(ctx context.Context, conn *pgxpool.Conn) error {
 	_, err := conn.Exec(ctx, stmt)
 	return err
 }
-
-//go:embed migrations.txt
-var migrationsTxt string
 
 //go:embed migrations/*.sql
 var migrationsFiles embed.FS

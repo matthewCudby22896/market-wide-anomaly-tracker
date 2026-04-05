@@ -1,4 +1,4 @@
-CREATE TABLE ohlc_bars (
+CREATE TABLE bars_1sec (
     symbol TEXT,
     t      BIGINT,
     o      REAL,
@@ -10,3 +10,9 @@ CREATE TABLE ohlc_bars (
     vw     REAL,
     PRIMARY KEY (symbol, t)
 );
+
+CREATE TABLE hydration_1sec (
+    symbol TEXT,
+    day    DATE,
+    PRIMARY KEY (symbol, day)
+)

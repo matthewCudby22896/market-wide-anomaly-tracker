@@ -96,7 +96,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
 		string(ticker),
-		5,
+		1,
 		gen.Second,
 		open,
 		close,

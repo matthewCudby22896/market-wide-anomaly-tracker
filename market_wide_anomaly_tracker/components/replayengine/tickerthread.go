@@ -7,22 +7,21 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
-type TickerThread interface {
+type SymbolThread interface {
 	LifeCycle
 	AsynShutdown()
 	GetTickPipe() chan<- int64
 	SetOutbox(outbox chan<- BroadcastMessage)
 }
 
-type tickerThread struct {
+type symbolThread struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	Ticker    Symbol
+	symbol    Symbol
 	Date      civil.Date
 	logger    ComponentLogger
 	outbox    chan<- BroadcastMessage
@@ -30,15 +29,15 @@ type tickerThread struct {
 	db        db.Database
 }
 
-func NewTickerThread(owner Hub, ticker Symbol, date civil.Date, db db.Database) *tickerThread {
+func NewSymbolThread(owner Hub, symbol Symbol, date civil.Date, db db.Database) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &tickerThread{
+	return &symbolThread{
 		Ctx:       ctx,
 		CancelCtx: cancel,
 		wg:        sync.WaitGroup{},
-		logger:    NewLogger(fmt.Sprintf("%s TickerThread", ticker)),
-		Ticker:    ticker,
+		logger:    NewLogger(fmt.Sprintf("%s symbolThread", symbol)),
+		symbol:    symbol,
 		Date:      date,
 		ticks:     make(chan int64),
 		db:        db,
@@ -47,7 +46,7 @@ func NewTickerThread(owner Hub, ticker Symbol, date civil.Date, db db.Database) 
 }
 
 // TODO: Do I need both
-func (t *tickerThread) Shutdown() {
+func (t *symbolThread) Shutdown() {
 	// Shutdown child components
 
 	// Shutdown self
@@ -59,11 +58,11 @@ func (t *tickerThread) Shutdown() {
 	t.logger.LogShutdown()
 }
 
-func (t *tickerThread) AsynShutdown() {
+func (t *symbolThread) AsynShutdown() {
 	go t.Shutdown()
 }
 
-func (t *tickerThread) Start() {
+func (t *symbolThread) Start() {
 	if t.outbox == nil {
 		t.logger.Errorf("fatal : t.outbox was nil")
 		os.Exit(1)
@@ -74,9 +73,9 @@ func (t *tickerThread) Start() {
 		defer t.wg.Done()
 
 		// Currently returns in DESC order
-		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.Date, string(t.Ticker))
+		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.Date, string(t.symbol))
 		if err != nil {
-			t.logger.Errorf("ticker failed to fetch data for symbol '%s': %s", t.Ticker, err)
+			t.logger.Errorf("symbol failed to fetch data for symbol '%s': %s", t.symbol, err)
 			t.Shutdown()
 			return
 		}
@@ -98,14 +97,10 @@ func (t *tickerThread) Start() {
 				return
 
 			case tick = <-t.ticks:
-				// DEBUGGING:
-				timestamp := common.UnixMilliToTimestampNYC(tick)
-				t.logger.Info(timestamp)
-
-				// Send all bars with T <= tick
+				// Send all bars that occured before the tick
 				for len(series) > 0 && series[len(series)-1].T <= tick {
 					msg := BroadcastMessage{
-						t.Ticker,
+						t.symbol,
 						series[len(series)-1],
 					}
 
@@ -118,10 +113,10 @@ func (t *tickerThread) Start() {
 	}()
 }
 
-func (t *tickerThread) GetTickPipe() chan<- int64 {
+func (t *symbolThread) GetTickPipe() chan<- int64 {
 	return t.ticks
 }
 
-func (t *tickerThread) SetOutbox(outbox chan<- BroadcastMessage) {
+func (t *symbolThread) SetOutbox(outbox chan<- BroadcastMessage) {
 	t.outbox = outbox
 }

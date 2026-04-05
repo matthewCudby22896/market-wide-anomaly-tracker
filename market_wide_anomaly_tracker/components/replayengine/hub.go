@@ -12,7 +12,6 @@ import (
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
-
 type HubReqType int
 
 const (
@@ -61,7 +60,7 @@ type hub struct {
 
 	clients               map[*client]struct{} // A 'Set' of the registered clients
 	symbolToClient        map[Symbol]map[*client]struct{}
-	symbolThreads         map[Symbol]*tickerThread
+	symbolThreads         map[Symbol]*symbolThread
 	clientToSubbedSymbols map[*client]map[Symbol]struct{}
 
 	notificationChan chan any
@@ -72,7 +71,6 @@ type hub struct {
 	Database db.Database
 }
 
-// INIT METHOD
 func NewHub(database db.Database) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -86,7 +84,7 @@ func NewHub(database db.Database) *hub {
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[Symbol]map[*client]struct{}),
 		clientToSubbedSymbols: make(map[*client]map[Symbol]struct{}),
-		symbolThreads:         make(map[Symbol]*tickerThread),
+		symbolThreads:         make(map[Symbol]*symbolThread),
 		logger:                NewLogger("Hub"),
 		DataCoordinator:       NewDataCoordinator(database),
 		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
@@ -285,11 +283,11 @@ func (h *hub) killTickerThread(ticker Symbol) {
 	delete(h.symbolThreads, ticker)
 }
 
-func (h *hub) StartTickerThread(ticker Symbol, date civil.Date) *tickerThread {
+func (h *hub) StartTickerThread(ticker Symbol, date civil.Date) *symbolThread {
 	h.logger.LogStartChild(fmt.Sprintf("TickerThread-%s", ticker))
 
 	// 1. Init ticker thread
-	thread := NewTickerThread(h, ticker, date, h.Database)
+	thread := NewSymbolThread(h, ticker, date, h.Database)
 	thread.outbox = h.broadcast
 
 	// 2. Register it with the clock s.t. it recieves ticks

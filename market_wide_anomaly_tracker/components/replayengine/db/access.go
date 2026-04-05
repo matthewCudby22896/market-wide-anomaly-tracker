@@ -66,7 +66,7 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.Series) erro
 
 	n, err := tx.CopyFrom(
 		ctx,
-		pgx.Identifier{"ohlc_bars"},
+		pgx.Identifier{"bars_1sec"},
 		bars.ColNames(),
 		pgx.CopyFromRows(bars.ToRows()),
 	)
@@ -92,7 +92,7 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 
 	stmt := `
 		SELECT symbol, t, o, h, l, c, n, v, vw
-		FROM ohlc_bars
+		FROM bars_1sec
 		WHERE t >= $1
 		AND t <= $2
 		AND symbol = $3
