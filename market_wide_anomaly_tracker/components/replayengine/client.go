@@ -3,81 +3,124 @@ package replayengine
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
-type Client struct {
-	Ctx        context.Context
-	CancelCtx  context.CancelFunc
+var clientID int = 0
+
+type Client interface {
+	LifeCycle
+	Outbox() <-chan any
+}
+
+type client struct {
 	Connection *websocket.Conn
 
-	// TODO: Remove and replace with needed pipes
-	Hub      *Hub
-	Outbox   chan any      // For sending
-	Shutdown chan struct{} // Triggered by Hub when shutting down the server
+	outbox chan any
 
-	// For sending (un)subscription requests to the Hub
-	subscribe   chan<- SubscriptionRequest
-	unsubscribe chan<- SubscriptionRequest
+	context       context.Context
+	cancelContext context.CancelFunc
+
+	wg sync.WaitGroup
+
+	logger ComponentLogger
+
+	// For sending unsub, sub, unregister requests to hub
+	// Set upon registration of the client to the hub
+	hubRequestOutbox chan<- ClientRequest
 }
 
-func (c *Client) StartClient() {
-	// Send the Hub a reference of itself to register
-	c.Hub.register <- c
+func NewClient(c *websocket.Conn, hub Hub) *client {
+	defer func() {
+		clientID += 1
+	}()
 
-	// Unregister the client when the connection closes
-	defer c.UnregisterFromHub()
+	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start go routine to listen for shutdown (shutdown on context closure)
-	go c.ListenForShutdown()
+	return &client{
+		Connection:       c,
+		outbox:           make(chan any, 1024),
+		context:          ctx,
+		cancelContext:    cancel,
+		wg:               sync.WaitGroup{},
+		logger:           NewLogger(fmt.Sprintf("Client %d", clientID)),
+		hubRequestOutbox: nil, // Set by hub upon registration
+	}
 
-	// Start SENDER go routine
+}
+
+func (c *client) Shutdown() {
+	c.cancelContext()
+	c.wg.Wait()
+	c.logger.LogShutdown()
+}
+
+func (c *client) Start() {
+	c.wg.Add(1)
+	go c.ListenerThread()
+	c.wg.Add(1)
 	go c.SenderThread()
 
-	// Start LISTENER go routine
-	go c.ListenerThread()
-
-	<-c.Ctx.Done()
+	// This will ensure that the client is always unregistered from the Hub
+	// when the client disconnects
+	c.wg.Add(1)
+	go func(c *client) {
+		defer c.wg.Done()
+		<-c.context.Done()
+		c.logger.Info("requesting deregistration")
+		c.hubRequestOutbox <- unregisterRequest{BaseRequest{c}}
+	}(c)
+	c.logger.Info("started.")
 }
 
-// Exits on either:
-//   - Cancellation of ctx
-func (c *Client) ListenerThread() {
+func (c *client) ListenerThread() {
+	defer c.wg.Done()
 	for {
 		var v Message
-		err := wsjson.Read(c.Ctx, c.Connection, &v)
+		err := wsjson.Read(c.context, c.Connection, &v)
+
 		if err != nil {
-			fmt.Println("Reader error/disconnect:", err)
-			c.CancelCtx()
+			status := websocket.CloseStatus(err)
+			if status == -1 {
+				c.logger.Info("client gracefully disconnected")
+			} else {
+				c.logger.Errorf("client read err: %v", err)
+			}
+			go c.Shutdown()
 			return
 		}
 
-		fmt.Printf("Received: %#v\n", v)
-
 		switch v.Action {
 		case "subscribe":
-			c.HandleSub(v.Tickers)
-
+			c.hubRequestOutbox <- subRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
 		case "unsubscribe":
-			c.HandleUnsub(v.Tickers)
-
+			c.hubRequestOutbox <- unsubRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
 		default:
-			fmt.Println("Unrecognised `action` field : ", v.Action)
+			c.logger.Info("unrecognised `action` field : ", v.Action)
 		}
 	}
 }
 
-// Exits on either:
-//   - Cancellation of ctx
-func (c *Client) SenderThread() {
+func toTypedTicker(arr []string) []common.Symbol {
+	typedTickers := make([]common.Symbol, len(arr))
+	for i, ticker := range arr {
+		typedTickers[i] = common.Symbol(ticker)
+	}
+	return typedTickers
+}
+
+func (c *client) SenderThread() {
+	defer c.wg.Done()
 	for {
 		select {
-		case <-c.Ctx.Done():
+		case <-c.context.Done():
 			return
-		case msg := <-c.Outbox:
-			err := wsjson.Write(c.Ctx, c.Connection, msg)
+		case msg := <-c.outbox:
+			err := wsjson.Write(c.context, c.Connection, msg)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -85,44 +128,6 @@ func (c *Client) SenderThread() {
 	}
 }
 
-// Exits on either:
-//   - Cancellation of ctx from client closing connection
-//   - Shutdown signal sent from parent Hub -> triggering ctx cancellation
-func (c *Client) ListenForShutdown() {
-	select {
-	case <-c.Shutdown:
-		// The hub has signalled for the client connection to be shutdown
-		c.CancelCtx()
-
-	case <-c.Ctx.Done():
-		// The user disconnected normally
-		return
-	}
-}
-
-func (c *Client) HandleSub(tickers []string) {
-	c.subscribe <- *c.createSubRequest(tickers)
-}
-
-func (c *Client) HandleUnsub(tickers []string) {
-	c.unsubscribe <- *c.createSubRequest(tickers)
-}
-
-func (c *Client) UnregisterFromHub() {
-	select {
-	// If Hub is listening send reference of self to unregister
-	case c.Hub.unregister <- c:
-	case <-c.Shutdown:
-	}
-}
-
-func (c *Client) createSubRequest(tickers []string) *SubscriptionRequest {
-	typedTickers := make([]Ticker, 0, len(tickers))
-	for _, t := range tickers {
-		typedTickers = append(typedTickers, Ticker(t))
-	}
-	return &SubscriptionRequest{
-		Client:  c,
-		Tickers: typedTickers,
-	}
+func (c *client) Outbox() chan<- any {
+	return c.outbox
 }
