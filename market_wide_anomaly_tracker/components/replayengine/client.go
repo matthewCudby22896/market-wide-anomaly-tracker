@@ -7,6 +7,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
 var clientID int = 0
@@ -19,8 +20,6 @@ type Client interface {
 type client struct {
 	Connection *websocket.Conn
 
-	HubClientInterface
-
 	outbox chan any
 
 	context       context.Context
@@ -29,6 +28,10 @@ type client struct {
 	wg sync.WaitGroup
 
 	logger ComponentLogger
+
+	// For sending unsub, sub, unregister requests to hub
+	// Set upon registration of the client to the hub
+	hubRequestOutbox chan<- ClientRequest
 }
 
 func NewClient(c *websocket.Conn, hub Hub) *client {
@@ -39,13 +42,13 @@ func NewClient(c *websocket.Conn, hub Hub) *client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &client{
-		Connection:         c,
-		HubClientInterface: hub,
-		outbox:             make(chan any, 1024),
-		context:            ctx,
-		cancelContext:      cancel,
-		wg:                 sync.WaitGroup{},
-		logger:             NewLogger(fmt.Sprintf("Client %d", clientID)),
+		Connection:       c,
+		outbox:           make(chan any, 1024),
+		context:          ctx,
+		cancelContext:    cancel,
+		wg:               sync.WaitGroup{},
+		logger:           NewLogger(fmt.Sprintf("Client %d", clientID)),
+		hubRequestOutbox: nil, // Set by hub upon registration
 	}
 
 }
@@ -69,7 +72,7 @@ func (c *client) Start() {
 		defer c.wg.Done()
 		<-c.context.Done()
 		c.logger.Info("requesting deregistration")
-		c.HubClientInterface.UnregisterClient(c) // Unregister self
+		c.hubRequestOutbox <- unregisterRequest{BaseRequest{c}}
 	}(c)
 	c.logger.Info("started.")
 }
@@ -85,7 +88,7 @@ func (c *client) ListenerThread() {
 			if status == -1 {
 				c.logger.Info("client gracefully disconnected")
 			} else {
-				c.logger.Info("client read err: %v", err)
+				c.logger.Errorf("client read err: %v", err)
 			}
 			go c.Shutdown()
 			return
@@ -93,20 +96,19 @@ func (c *client) ListenerThread() {
 
 		switch v.Action {
 		case "subscribe":
-			c.HubClientInterface.RequestSub(c, toTypedTicker(v.Tickers))
+			c.hubRequestOutbox <- subRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
 		case "unsubscribe":
-			c.HubClientInterface.RequestUnsub(c, toTypedTicker(v.Tickers))
+			c.hubRequestOutbox <- unsubRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
 		default:
-
 			c.logger.Info("unrecognised `action` field : ", v.Action)
 		}
 	}
 }
 
-func toTypedTicker(arr []string) []Symbol {
-	typedTickers := make([]Symbol, len(arr))
+func toTypedTicker(arr []string) []common.Symbol {
+	typedTickers := make([]common.Symbol, len(arr))
 	for i, ticker := range arr {
-		typedTickers[i] = Symbol(ticker)
+		typedTickers[i] = common.Symbol(ticker)
 	}
 	return typedTickers
 }

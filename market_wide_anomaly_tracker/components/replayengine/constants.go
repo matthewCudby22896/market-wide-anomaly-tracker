@@ -1,21 +1,21 @@
 package replayengine
 
-const replayEnginerServerSocket = ":8080"
+import "github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 
-type Symbol string
+const replayEnginerServerSocket = ":8080"
 
 type Message struct {
 	Action  string   `json:"action"`
-	Tickers []string `json:"tickers"`
+	Symbols []string `json:"symbols"`
 }
 
 type SubscriptionRequest struct {
 	Client  *client
-	Tickers []Symbol
+	Symbols []common.Symbol
 }
 
 type BroadcastMessage struct {
-	Ticker Symbol
+	Symbol common.Symbol
 	Data   any
 }
 

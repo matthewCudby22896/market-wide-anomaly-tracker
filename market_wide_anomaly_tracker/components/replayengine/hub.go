@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
@@ -24,44 +25,67 @@ const (
 type hubRequest struct {
 	Type    HubReqType
 	Client  *client
-	Tickers []Symbol
+	Symbols []common.Symbol
 }
 
 // Hub functionality exposed to dataCoordinator
 type DataAvailabilityConsumer interface {
-	SignalDataReady(ticker Symbol, date civil.Date)
+	SignalDataReady(symbol common.Symbol, date civil.Date)
 }
 
-type HubClientInterface interface {
-	RequestSub(c *client, tickers []Symbol)
-	RequestUnsub(c *client, tickers []Symbol)
-	UnregisterClient(c *client)
+type ClientRequest interface {
+	GetSender() *client
+}
+
+type BaseRequest struct {
+	Sender *client
+}
+
+func (r BaseRequest) GetSender() *client {
+	return r.Sender
+}
+
+type registerRequest struct {
+	BaseRequest
+}
+
+type unregisterRequest struct {
+	BaseRequest
+}
+
+type subRequest struct {
+	BaseRequest
+	symbols []common.Symbol
+}
+
+type unsubRequest struct {
+	BaseRequest
+	symbols []common.Symbol
 }
 
 type Hub interface {
 	LifeCycle
 
-	HubClientInterface
 	DataAvailabilityConsumer
 
+	// This makes sense, because the hub is owned by the server
 	RegisterClient(c *client)
 }
 
 // hub implements the Hub interface
 type hub struct {
-	// Rework
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 
-	requestsChan chan hubRequest
+	clientRequestInbox chan ClientRequest
 
 	broadcast chan BroadcastMessage
 
 	clients               map[*client]struct{} // A 'Set' of the registered clients
-	symbolToClient        map[Symbol]map[*client]struct{}
-	symbolThreads         map[Symbol]*symbolThread
-	clientToSubbedSymbols map[*client]map[Symbol]struct{}
+	symbolToClient        map[common.Symbol]map[*client]struct{}
+	symbolThreads         map[common.Symbol]*symbolThread
+	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
 
 	notificationChan chan any
 	logger           ComponentLogger
@@ -78,13 +102,13 @@ func NewHub(database db.Database) *hub {
 		Ctx:                   ctx,
 		CancelCtx:             cancel,
 		wg:                    sync.WaitGroup{},
-		requestsChan:          make(chan hubRequest, 1024),
+		clientRequestInbox:    make(chan ClientRequest, 1024),
 		broadcast:             make(chan BroadcastMessage, 1024),
 		notificationChan:      make(chan any, 1024),
 		clients:               make(map[*client]struct{}),
-		symbolToClient:        make(map[Symbol]map[*client]struct{}),
-		clientToSubbedSymbols: make(map[*client]map[Symbol]struct{}),
-		symbolThreads:         make(map[Symbol]*symbolThread),
+		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
+		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
+		symbolThreads:         make(map[common.Symbol]*symbolThread),
 		logger:                NewLogger("Hub"),
 		DataCoordinator:       NewDataCoordinator(database),
 		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
@@ -128,16 +152,16 @@ func (h *hub) Start() {
 			case msg := <-h.broadcast:
 				h.handleBroadcast(msg)
 
-			case req := <-h.requestsChan:
-				switch req.Type {
-				case REGISTER:
-					h.handleRegister(req.Client)
-				case UNREGISTER:
-					h.handleUnregister(req.Client)
-				case SUB:
-					h.handleSub(req.Client, req.Tickers)
-				case UNSUB:
-					h.handleUnsub(req.Client, req.Tickers)
+			case req := <-h.clientRequestInbox:
+				switch v := req.(type) {
+				case registerRequest:
+					h.handleRegister(v)
+				case unregisterRequest:
+					h.handleUnregister(v)
+				case subRequest:
+					h.handleSub(v)
+				case unsubRequest:
+					h.handleUnsub(v)
 				}
 
 			case notification := <-h.notificationChan:
@@ -168,44 +192,27 @@ func (h *hub) Start() {
 	h.logger.Info("started.")
 }
 
-func (h *hub) RegisterClient(c *client) {
-	h.requestsChan <- hubRequest{
-		Type:   REGISTER,
-		Client: c,
-	}
+func (h *hub) SignalDataReady(symbol common.Symbol, date civil.Date) {
+	h.notificationChan <- symbolHydrated{symbol, date}
 }
 
-func (h *hub) UnregisterClient(c *client) {
-	h.requestsChan <- hubRequest{
-		Type:   UNREGISTER,
-		Client: c,
-	}
-}
-
-func (h *hub) RequestSub(c *client, tickers []Symbol) {
-	h.requestsChan <- hubRequest{SUB, c, tickers}
-}
-
-func (h *hub) RequestUnsub(c *client, tickers []Symbol) {
-	h.requestsChan <- hubRequest{UNSUB, c, tickers}
-}
-
-func (h *hub) SignalDataReady(ticker Symbol, date civil.Date) {
-	h.notificationChan <- symbolHydrated{ticker, date}
-}
-
-// BroadcastIngester interface implementation
 func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
 	// Fan-out msg to subscribed clients
-	for client := range h.symbolToClient[msg.Ticker] {
+	for client := range h.symbolToClient[msg.Symbol] {
 		client.Outbox() <- msg.Data
 	}
 }
 
-func (h *hub) handleSub(c *client, symbols []Symbol) {
-	for _, symbol := range symbols {
+func (h *hub) RegisterClient(c *client) {
+	h.clientRequestInbox <- registerRequest{BaseRequest{c}}
+}
+
+func (h *hub) handleSub(req subRequest) {
+	c := req.Sender
+
+	for _, symbol := range req.symbols {
 
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber for %s. Starting ticker thread.", symbol)
@@ -227,7 +234,7 @@ func (h *hub) handleSub(c *client, symbols []Symbol) {
 		}
 
 		if h.clientToSubbedSymbols[c] == nil {
-			h.clientToSubbedSymbols[c] = make(map[Symbol]struct{})
+			h.clientToSubbedSymbols[c] = make(map[common.Symbol]struct{})
 		}
 
 		if _, ok := h.symbolToClient[symbol][c]; ok {
@@ -242,32 +249,39 @@ func (h *hub) handleSub(c *client, symbols []Symbol) {
 	}
 }
 
-func (h *hub) handleUnsub(c *client, tickers []Symbol) {
-	for _, ticker := range tickers {
-		if clients, ok := h.symbolToClient[ticker]; ok {
+func (h *hub) handleUnsub(req unsubRequest) {
+	symbols := req.symbols
+	c := req.Sender
+	for _, symbol := range symbols {
+		if clients, ok := h.symbolToClient[symbol]; ok {
 			delete(clients, c)
 
 			if len(clients) == 0 {
-				h.logger.Info("last subscriber left for %s. Killing ticker thread.", ticker)
-				h.killTickerThread(ticker)
-				delete(h.symbolToClient, ticker)
+				h.logger.Info("last subscriber left for %s. Killing symbol thread.", symbol)
+				h.killSymbolThread(symbol)
+				delete(h.symbolToClient, symbol)
 			}
 
-			h.logger.Info("a client unsubscribed from %s, total %d", ticker, len(h.symbolToClient[ticker]))
+			h.logger.Info("a client unsubscribed from %s, total %d", symbol, len(h.symbolToClient[symbol]))
 		}
 	}
 }
 
-func (h *hub) handleRegister(c *client) {
+func (h *hub) handleRegister(req registerRequest) {
+	c := req.Sender
 	h.clients[c] = struct{}{}
+	c.hubRequestOutbox = h.clientRequestInbox
 	h.logger.Info("a client has been registered, total: %d", len(h.clients))
 }
 
-func (h *hub) handleUnregister(c *client) {
-	if tickers, ok := h.clientToSubbedSymbols[c]; ok && len(tickers) > 0 {
+func (h *hub) handleUnregister(req unregisterRequest) {
+	c := req.Sender
+	if symbols, ok := h.clientToSubbedSymbols[c]; ok && len(symbols) > 0 {
 		h.handleUnsub(
-			c,
-			slices.Collect(maps.Keys(tickers)),
+			unsubRequest{
+				BaseRequest: BaseRequest{c},
+				symbols:     slices.Collect(maps.Keys(symbols)),
+			},
 		)
 	}
 
@@ -276,25 +290,25 @@ func (h *hub) handleUnregister(c *client) {
 	h.logger.Info("a client has been unregistered, total: %d", len(h.clients))
 }
 
-func (h *hub) killTickerThread(ticker Symbol) {
-	thread := h.symbolThreads[ticker]
-	h.logger.LogShutdownChild(fmt.Sprintf("TickerThread-%s", ticker))
+func (h *hub) killSymbolThread(symbol common.Symbol) {
+	thread := h.symbolThreads[symbol]
+	h.logger.LogShutdownChild(fmt.Sprintf("SymbolThread-%s", symbol))
 	thread.AsynShutdown()
-	delete(h.symbolThreads, ticker)
+	delete(h.symbolThreads, symbol)
 }
 
-func (h *hub) StartTickerThread(ticker Symbol, date civil.Date) *symbolThread {
-	h.logger.LogStartChild(fmt.Sprintf("TickerThread-%s", ticker))
+func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolThread {
+	h.logger.LogStartChild(fmt.Sprintf("SymbolThread-%s", symbol))
 
-	// 1. Init ticker thread
-	thread := NewSymbolThread(h, ticker, date, h.Database)
+	// 1. Init symbol thread
+	thread := NewSymbolThread(h, symbol, date, h.Database)
 	thread.outbox = h.broadcast
 
 	// 2. Register it with the clock s.t. it recieves ticks
 	h.Clock.RegisterPipe(thread.GetTickPipe())
 
 	// 3. Keep ref in map
-	h.symbolThreads[ticker] = thread
+	h.symbolThreads[symbol] = thread
 
 	// 4. Start the thread
 	thread.Start()

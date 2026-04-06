@@ -126,8 +126,8 @@ func (s *dbTestSuite) TestLoadHydrationState() {
 	s.Require().NoError(err)
 	s.Assert().Len(res, 1)
 	expected := common.HydrationStatusRow{
-		Symbol : "AAPL",
-		Date : "2026-03-20",
+		Symbol: "AAPL",
+		Date:   "2026-03-20",
 	}
 	s.Assert().Equal(expected, res[0])
 }

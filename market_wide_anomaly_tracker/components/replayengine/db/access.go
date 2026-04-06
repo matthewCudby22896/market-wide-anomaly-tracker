@@ -16,6 +16,7 @@ import (
 type Database interface {
 	BatchStoreBars(ctx context.Context, bars common.Series) error
 	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error)
+	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
 }
 
 // Implements the Database interface

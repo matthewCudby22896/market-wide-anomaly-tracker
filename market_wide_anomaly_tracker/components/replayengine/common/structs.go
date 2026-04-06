@@ -14,7 +14,7 @@ type Bar struct {
 
 
 type HydrationStatusRow struct {
-	Symbol string
+	Symbol Symbol
 	Date   string
 }
 
@@ -25,6 +25,8 @@ func DummyOHLCBar(symbol string) Bar {
 }
 
 type Series []Bar
+
+type Symbol string
 
 func (a Series) ToRows() [][]any {
 	matrix := make([][]any, len(a))

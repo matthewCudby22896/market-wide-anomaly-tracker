@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
@@ -19,7 +20,7 @@ const (
 
 type DataCoordinator interface {
 	LifeCycle
-	IsReady(t Symbol, d civil.Date) bool
+	IsReady(t common.Symbol, d civil.Date) bool
 	SetOutbox(chan any)
 }
 
@@ -35,28 +36,27 @@ type dataCoordinator struct {
 
 	// Internal state
 	statusMapMu sync.Mutex
-	statusMap   map[string]map[Symbol]DataAvailability
+	statusMap   map[string]map[common.Symbol]DataAvailability
 
 	// Internal channels
 	dataQueryChan chan dataQuery
 	outbox        chan any
 }
 
-
 // Structs for internal use:
 type dataQuery struct {
-	Symbol Symbol
+	Symbol common.Symbol
 	date   civil.Date
 }
 
 // Structs for external messaging
 type hydrationSuccess struct {
-	Symbol Symbol
+	Symbol common.Symbol
 	Date   civil.Date
 }
 
 type hydrationFailure struct {
-	Symbol Symbol
+	Symbol common.Symbol
 	Date   civil.Date
 }
 
@@ -70,15 +70,14 @@ func NewDataCoordinator(database db.Database) *dataCoordinator {
 		database:      database,
 		massiveClient: NewMassiveClient(),
 		statusMapMu:   sync.Mutex{},
-		statusMap:     make(map[string]map[Symbol]DataAvailability),
+		statusMap:     make(map[string]map[common.Symbol]DataAvailability),
 		dataQueryChan: make(chan dataQuery, 1024),
 		outbox:        nil, // Assigned post-hoc (by parent)
 	}
 }
 
 func (c *dataCoordinator) Start() {
-	// Init c.statusMap based of db state
-
+	c.InitStatusMap()
 
 	c.logger.LogStartChild("MassiveClient")
 	c.massiveClient.Start()
@@ -109,6 +108,16 @@ func (c *dataCoordinator) Start() {
 	c.logger.Info("started.")
 }
 
+func (c *dataCoordinator) InitStatusMap() {
+	state, err := c.database.LoadHydrationState(c.Ctx)
+	if err != nil {
+		c.logger.Errorf("failed to load hydration state")
+	}
+	for _, x := range state {
+		c.updateStatus(x.Symbol, x.Date, READY)
+	}
+}
+
 func (c *dataCoordinator) Shutdown() {
 	c.logger.LogShutdownChild("MassiveClient")
 	c.massiveClient.Shutdown()
@@ -125,7 +134,7 @@ func (c *dataCoordinator) SetOutbox(outbox chan any) {
 	c.outbox = outbox
 }
 
-func (c *dataCoordinator) HydrationTask(date civil.Date, symbol Symbol) {
+func (c *dataCoordinator) HydrationTask(date civil.Date, symbol common.Symbol) {
 	defer c.wg.Done()
 
 	ctx := context.WithoutCancel(c.Ctx)
@@ -154,29 +163,29 @@ func (c *dataCoordinator) HydrationTask(date civil.Date, symbol Symbol) {
 	c.outbox <- hydrationSuccess{symbol, date}
 }
 
-func (c *dataCoordinator) getState(ticker Symbol, date string) DataAvailability {
+func (c *dataCoordinator) getState(symbol common.Symbol, date string) DataAvailability {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[Symbol]DataAvailability)
+		c.statusMap[date] = make(map[common.Symbol]DataAvailability)
 	}
-	state, ok := c.statusMap[date][ticker]
+	state, ok := c.statusMap[date][symbol]
 	if !ok {
 		return NONE
 	}
 	return state
 }
 
-func (c *dataCoordinator) updateStatus(ticker Symbol, date string, status DataAvailability) {
+func (c *dataCoordinator) updateStatus(ticker common.Symbol, date string, status DataAvailability) {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[Symbol]DataAvailability)
+		c.statusMap[date] = make(map[common.Symbol]DataAvailability)
 	}
 	c.statusMap[date][ticker] = status
 }
 
-func (c *dataCoordinator) IsReady(t Symbol, d civil.Date) bool {
+func (c *dataCoordinator) IsReady(t common.Symbol, d civil.Date) bool {
 	state := c.getState(t, d.String())
 
 	if state == READY {
