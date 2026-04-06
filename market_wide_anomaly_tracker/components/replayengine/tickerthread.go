@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
 type SymbolThread interface {
@@ -21,7 +22,7 @@ type symbolThread struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	symbol    Symbol
+	symbol    common.Symbol
 	Date      civil.Date
 	logger    ComponentLogger
 	outbox    chan<- BroadcastMessage
@@ -29,7 +30,7 @@ type symbolThread struct {
 	db        db.Database
 }
 
-func NewSymbolThread(owner Hub, symbol Symbol, date civil.Date, db db.Database) *symbolThread {
+func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db db.Database) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &symbolThread{

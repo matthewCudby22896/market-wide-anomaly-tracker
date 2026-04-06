@@ -81,8 +81,6 @@ func (db *database) applyMigrations() error {
 			return fmt.Errorf("err whilst checking if migration has been applied: %w", err)
 		}
 
-		fmt.Printf("%x\n", currentHash)
-		fmt.Printf("%x\n", storedHash)
 		if isApplied {
 			if !slices.Equal(currentHash, storedHash) {
 				return fmt.Errorf("stored hash doesn't match calculated hash for migration: `%s`", name)
@@ -158,8 +156,6 @@ func appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash
 	`
 	prevHashStr := fmt.Sprintf("%x", prevHash)
 	hashStr := fmt.Sprintf("%x", hash)
-	fmt.Printf("storing hash: %s\n", hashStr)
-	fmt.Printf("prev: %s\ncurr: %s\n", prevHashStr, hashStr)
 	tag, err := tx.Exec(
 		ctx,
 		stmt,

@@ -23,7 +23,7 @@ import (
 
 type MassiveClient interface {
 	LifeCycle
-	FetchDayData(day civil.Date, ticker Symbol)
+	FetchDayData(day civil.Date, ticker common.Symbol)
 }
 
 type massiveClient struct {
@@ -84,7 +84,7 @@ func (c *massiveClient) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker Symbol) ([]common.Bar, error) {
+func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol common.Symbol) ([]common.Bar, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",
@@ -95,7 +95,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 	close := strconv.FormatInt(common.GetMarketCloseUnixMilli(day), 10)
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
-		string(ticker),
+		string(symbol),
 		1,
 		gen.Second,
 		open,
@@ -127,7 +127,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, ticker
 		vw, _ := item["vw"].(float64)
 
 		bar := common.Bar{
-			Symbol: string(ticker),
+			Symbol: string(symbol),
 			T:      int64(t), // TODO: Check this is okay
 			O:      o,
 			H:      h,
