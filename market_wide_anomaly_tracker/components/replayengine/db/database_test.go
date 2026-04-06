@@ -30,7 +30,7 @@ func (s *dbTestSuite) SetupSuite() {
 
 	s.db = RequireNewDatabase(url)
 
-	s.db.RequireApplyMigrations()
+	s.db.RequireApplyMigrations()															
 }
 
 func (suite *dbTestSuite) TearDownSuite() {

@@ -12,6 +12,8 @@ import (
 type Clock interface {
 	LifeCycle
 	RegisterPipe(chan<- int64)
+	Pause()
+	Resume()
 }
 
 type clock struct {
@@ -20,7 +22,9 @@ type clock struct {
 	wg        sync.WaitGroup
 	logger    ComponentLogger
 	clockSettings
-	isPaused bool
+
+	isPausedMu sync.Mutex
+	isPaused   bool
 
 	subscribersMu sync.Mutex
 	subscribers   map[chan<- int64]struct{}
@@ -66,9 +70,11 @@ func (c *clock) Start() {
 			case <-c.Ctx.Done():
 				return
 			case <-t.C:
+				c.isPausedMu.Lock()
 				if c.isPaused {
 					continue
 				}
+				c.isPausedMu.Unlock()
 
 				// 1 Sec (1000 Millisecond)
 				globalTime += 1000
@@ -99,4 +105,16 @@ func (c *clock) RegisterPipe(pipe chan<- int64) {
 	c.subscribersMu.Lock()
 	c.subscribers[pipe] = struct{}{}
 	c.subscribersMu.Unlock()
+}
+
+func (c *clock) Pause() {
+	c.isPausedMu.Lock()
+	defer c.isPausedMu.Unlock()
+	c.isPaused = true
+}
+
+func (c *clock) Resume() {
+	c.isPausedMu.Lock()
+	defer c.isPausedMu.Unlock()
+	c.isPaused = false
 }

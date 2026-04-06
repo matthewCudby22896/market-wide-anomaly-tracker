@@ -2,7 +2,6 @@ package replayengine
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -112,7 +111,6 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 	aggregateData := make([]common.Bar, 0, 4680)
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
-	// TODO: Remove
 	i := 0
 	for iter.Next() {
 		item := iter.Item()
@@ -139,11 +137,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 		}
 		aggregateData = append(aggregateData, bar)
 		i++
-		// TODO: Remove
-		fmt.Printf("[%d] %#v \n", i, bar)
 	}
-	// TODO: Remove
-	fmt.Printf("len arr: %d\n", len(aggregateData))
 
 	return aggregateData, nil
 }

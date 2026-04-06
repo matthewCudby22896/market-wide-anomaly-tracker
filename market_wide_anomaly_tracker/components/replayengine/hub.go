@@ -62,6 +62,8 @@ type Hub interface {
 	LifeCycle
 
 	RegisterClient(c *client)
+	PauseSimulation()
+	ResumeSimulation()
 }
 
 // hub implements the Hub interface
@@ -193,6 +195,14 @@ func (h *hub) handleBroadcast(msg BroadcastMessage) {
 
 func (h *hub) RegisterClient(c *client) {
 	h.clientRequestInbox <- registerRequest{BaseRequest{c}}
+}
+
+func (h *hub) PauseSimulation() {
+	h.Clock.Pause()
+}
+
+func (h *hub) ResumeSimulation() {
+	h.Clock.Resume()
 }
 
 func (h *hub) handleSub(req subRequest) {

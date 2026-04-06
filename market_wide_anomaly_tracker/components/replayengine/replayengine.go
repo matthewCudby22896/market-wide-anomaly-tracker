@@ -20,7 +20,6 @@ type replayEngineServer struct {
 	wg     sync.WaitGroup
 	logger ComponentLogger
 
-	// Children
 	Hub Hub
 }
 
@@ -39,16 +38,24 @@ func NewReplayEngineServer() *replayEngineServer {
 		Handler: mux,
 	}
 
-	ret := &replayEngineServer{
+	srv := &replayEngineServer{
 		Server: server,
 		wg:     sync.WaitGroup{},
 		logger: NewLogger("ReplayEnginerServer"),
 		Hub:    NewHub(database),
 	}
 
-	mux.HandleFunc("/ws", ret.handleConnection)
+	// WebSocket
+	mux.HandleFunc("/ws", srv.handleConnection)
 
-	return ret
+	// Control Plane
+	mux.HandleFunc("/simulation/pause", srv.handlePause)
+	mux.HandleFunc("/simulation/resume", srv.handleResume)
+	mux.HandleFunc("/simulation/restart", srv.handleRestart)
+	mux.HandleFunc("/control/settings", srv.handleSettings)
+	mux.HandleFunc("/control/hydrate", srv.handleHydrate)
+
+	return srv
 }
 
 func (s *replayEngineServer) Start() {
@@ -76,7 +83,7 @@ func (s *replayEngineServer) Shutdown() {
 		defer s.wg.Done()
 
 		s.logger.Info("Shutting down http server...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //TODO: magic num
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := s.Server.Shutdown(ctx); err != nil {
@@ -97,7 +104,7 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 	// 1. Accept and upgrade the connection
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		// TODO: Log
+		s.logger.Fatalf("failed to upgrade connection: %w", err)
 		return
 	}
 
