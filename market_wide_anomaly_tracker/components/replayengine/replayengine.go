@@ -24,7 +24,7 @@ type replayEngineServer struct {
 	Hub Hub
 }
 
-func NewReplayEnginerServer() *replayEngineServer {
+func NewReplayEngineServer() *replayEngineServer {
 	// Created once at this top level, and then passed down
 	// the component tree
 	database := db.RequireNewDatabase(DB_URL)

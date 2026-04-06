@@ -1,11 +1,12 @@
-### Random Notes
+### package:replayengine
 
+**Component Ownership Graph**
 ```
-Hub
-    - DataCoordinator
-    - Clock
-    - []Client
-    - []TickerThread
-
-DataCoordinator
+ReplayEngineServer
+    Hub:
+        - DataCoordinator:
+            - MassiveClient:
+        - Clock:
+        - []Client
+        - []TickerThread
 ```
