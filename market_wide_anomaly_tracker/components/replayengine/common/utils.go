@@ -7,7 +7,7 @@ import (
 	"cloud.google.com/go/civil"
 )
 
-func GetMarketOpenUnixMilli(day civil.Date) int64 {
+func NYSEOpenUnixMilli(day civil.Date) int64 {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		log.Fatal(err)
@@ -22,7 +22,7 @@ func GetMarketOpenUnixMilli(day civil.Date) int64 {
 	return t
 }
 
-func GetMarketCloseUnixMilli(day civil.Date) int64 {
+func NYSECloseUnixMilli(day civil.Date) int64 {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		log.Fatal(err)

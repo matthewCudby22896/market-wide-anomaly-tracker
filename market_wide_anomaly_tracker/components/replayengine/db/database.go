@@ -15,7 +15,7 @@ import (
 
 type Database interface {
 	BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error
-	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error)
+	GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
 }
 
@@ -96,7 +96,7 @@ func (db *database) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx
 }
 
 // TODO: Rename
-func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error) {
+func (db *database) GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
 	conn, err := db.getConn(ctx)
 	defer conn.Release()
 	if err != nil {
@@ -114,8 +114,8 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 	rows, err := conn.Query(
 		ctx,
 		stmt,
-		common.GetMarketOpenUnixMilli(day),
-		common.GetMarketCloseUnixMilli(day),
+		common.NYSEOpenUnixMilli(date),
+		common.NYSECloseUnixMilli(date),
 		symbol,
 	)
 	if err != nil {

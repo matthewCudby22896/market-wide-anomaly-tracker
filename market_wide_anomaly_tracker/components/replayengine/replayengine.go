@@ -35,7 +35,7 @@ func NewReplayEnginerServer() *replayEngineServer {
 	mux := http.NewServeMux()
 
 	server := &http.Server{
-		Addr:    replayEnginerServerSocket,
+		Addr:    WS_SOCKET,
 		Handler: mux,
 	}
 

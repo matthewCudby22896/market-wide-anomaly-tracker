@@ -20,25 +20,17 @@ type dbTestSuite struct {
 	suite.Suite
 	ctx       context.Context
 	container testcontainers.Container
-	dbUrl     string
 	db        *database
 }
 
 func (s *dbTestSuite) SetupSuite() {
 	s.ctx = s.T().Context()
 
-	// 1. Launch the containerised db, and set s.dbUrl
 	url := s.setupTestDB()
-	s.dbUrl = url
 
-	// 2. Create the `database` using the url and getConn for convenience
-	s.db = RequireNewDatabase(s.dbUrl)
+	s.db = RequireNewDatabase(url)
 
-	// 3. Apply migrations
 	s.db.RequireApplyMigrations()
-	s.db.RequireApplyMigrations()
-
-	// 4. Run tests...
 }
 
 func (suite *dbTestSuite) TearDownSuite() {
@@ -81,15 +73,15 @@ func (suite *dbTestSuite) setupTestDB() string {
 }
 
 func (s *dbTestSuite) TestBatchStoreBars() {
-	symbol := "RR"
-	day := civil.Date{
+	symbol := common.Symbol("RR")
+	date := civil.Date{
 		Year:  2026,
 		Month: 3,
 		Day:   31,
 	}
 	nBars := int64(4680)
-	open := common.GetMarketOpenUnixMilli(day)
-	close := common.GetMarketCloseUnixMilli(day)
+	open := common.NYSEOpenUnixMilli(date)
+	close := common.NYSECloseUnixMilli(date)
 	diff := close - open
 	delta := diff / nBars
 
@@ -102,18 +94,16 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	}
 	slices.Reverse(bars)
 
-	err := s.db.BatchStoreBars(context.Background(), bars)
+	err := s.db.BatchStoreBars(context.Background(), bars, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.db.GetCompleteTradingDay(s.ctx, day, symbol)
+	retBars, err := s.db.GetCompleteTradingDay(s.ctx, symbol, date)
 
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
 }
 
 func (s *dbTestSuite) TestLoadHydrationState() {
-	// ISO 8601
-	// YYYY-MM-DD
 	ctx := s.ctxWithTimeout()
 	conn, err := s.db.getConn(ctx)
 	s.Require().NoError(err)

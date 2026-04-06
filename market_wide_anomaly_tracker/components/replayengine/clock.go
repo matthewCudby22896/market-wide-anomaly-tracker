@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
 type Clock interface {
@@ -26,27 +27,15 @@ type clock struct {
 }
 
 type clockSettings struct {
-	startTime time.Time
+	startTime int64 // Unix Milli
 	speedup   float32
-}
-
-func defaultStartTime(day civil.Date) time.Time {
-	location, _ := time.LoadLocation("America/New_York")
-
-	return time.Date(
-		day.Year,
-		day.Month,
-		day.Day,
-		9, 30, 0, 0, // 9:30:00.000000
-		location,
-	)
 }
 
 func NewClock(day civil.Date, speedup float32) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := clockSettings{
-		startTime: defaultStartTime(day),
+		startTime: common.NYSEOpenUnixMilli(day),
 		speedup:   speedup,
 	}
 
@@ -66,7 +55,7 @@ func (c *clock) Start() {
 	go func() {
 		defer c.wg.Done()
 
-		globalTime := c.clockSettings.startTime.UnixMilli()
+		globalTime := c.clockSettings.startTime
 
 		// Init Ticker
 		interval := time.Duration(float64(time.Second) / float64(c.speedup)) // int64

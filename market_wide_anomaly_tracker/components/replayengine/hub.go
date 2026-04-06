@@ -28,11 +28,6 @@ type hubRequest struct {
 	Symbols []common.Symbol
 }
 
-// Hub functionality exposed to dataCoordinator
-type DataAvailabilityConsumer interface {
-	SignalDataReady(symbol common.Symbol, date civil.Date)
-}
-
 type ClientRequest interface {
 	GetSender() *client
 }
@@ -66,9 +61,6 @@ type unsubRequest struct {
 type Hub interface {
 	LifeCycle
 
-	DataAvailabilityConsumer
-
-	// This makes sense, because the hub is owned by the server
 	RegisterClient(c *client)
 }
 
@@ -191,12 +183,6 @@ func (h *hub) Start() {
 	}()
 	h.logger.Info("started.")
 }
-
-func (h *hub) SignalDataReady(symbol common.Symbol, date civil.Date) {
-	h.notificationChan <- symbolHydrated{symbol, date}
-}
-
-func (h *hub) BroadcastMessagePipe() chan<- BroadcastMessage { return h.broadcast }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
 	// Fan-out msg to subscribed clients

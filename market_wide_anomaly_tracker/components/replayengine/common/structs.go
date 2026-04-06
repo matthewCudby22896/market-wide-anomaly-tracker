@@ -1,7 +1,7 @@
 package common
 
 type Bar struct {
-	Symbol string  // e.g. "AAPL"
+	Symbol Symbol  // e.g. "AAPL"
 	T      int64   // timestamp
 	O      float64 // open
 	H      float64 // highest price
@@ -12,7 +12,6 @@ type Bar struct {
 	VW     float64 // volume weighted average price
 }
 
-
 type HydrationStatusRow struct {
 	Symbol Symbol
 	Date   string
@@ -20,7 +19,7 @@ type HydrationStatusRow struct {
 
 func DummyOHLCBar(symbol string) Bar {
 	return Bar{
-		Symbol: symbol,
+		Symbol: Symbol(symbol),
 	}
 }
 

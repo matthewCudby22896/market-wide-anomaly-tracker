@@ -91,8 +91,8 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 		Limit:    rest.Ptr(50000),
 	}
 
-	open := strconv.FormatInt(common.GetMarketOpenUnixMilli(day), 10)
-	close := strconv.FormatInt(common.GetMarketCloseUnixMilli(day), 10)
+	open := strconv.FormatInt(common.NYSEOpenUnixMilli(day), 10)
+	close := strconv.FormatInt(common.NYSECloseUnixMilli(day), 10)
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
 		string(symbol),
@@ -127,7 +127,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 		vw, _ := item["vw"].(float64)
 
 		bar := common.Bar{
-			Symbol: string(symbol),
+			Symbol: symbol,
 			T:      int64(t), // TODO: Check this is okay
 			O:      o,
 			H:      h,

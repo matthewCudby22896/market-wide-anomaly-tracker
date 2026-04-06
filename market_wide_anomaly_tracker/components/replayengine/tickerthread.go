@@ -72,7 +72,7 @@ func (t *symbolThread) Start() {
 		defer t.wg.Done()
 
 		// Currently returns in DESC order
-		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.Date, string(t.symbol))
+		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.symbol, t.Date)
 		if err != nil {
 			t.logger.Errorf("symbol failed to fetch data for symbol '%s': %s", t.symbol, err)
 			t.Shutdown()
