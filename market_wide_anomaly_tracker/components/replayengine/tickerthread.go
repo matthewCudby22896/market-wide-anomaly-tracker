@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
 type SymbolThread interface {
@@ -53,9 +53,7 @@ func (t *symbolThread) Shutdown() {
 	// Shutdown self
 	t.CancelCtx()
 
-	t.logger.Info("before wg")
 	t.wg.Wait()
-	t.logger.Info("after wg")
 	t.logger.LogShutdown()
 }
 

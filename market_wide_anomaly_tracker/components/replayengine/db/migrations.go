@@ -99,8 +99,8 @@ func (db *database) applyMigrations() error {
 				return fmt.Errorf("failed to append to migration table: %w", err)
 			}
 		}
-		prevHash = currentHash
 
+		prevHash = currentHash
 	}
 
 	err = tx.Commit(ctx)

@@ -92,7 +92,7 @@ func (c *dataCoordinator) Start() {
 				if !(state == READY || state == HYDRATING) {
 					// Launch Hydration Task
 					c.wg.Add(1)
-					go c.HydrationTask(query.date, query.Symbol)
+					go c.HydrationTask(query.Symbol, query.date)
 
 					// Update status -> HYDRATING
 					c.updateStatus(query.Symbol, query.date.String(), HYDRATING)
@@ -134,7 +134,7 @@ func (c *dataCoordinator) SetOutbox(outbox chan any) {
 	c.outbox = outbox
 }
 
-func (c *dataCoordinator) HydrationTask(date civil.Date, symbol common.Symbol) {
+func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 	defer c.wg.Done()
 
 	ctx := context.WithoutCancel(c.Ctx)
@@ -148,7 +148,7 @@ func (c *dataCoordinator) HydrationTask(date civil.Date, symbol common.Symbol) {
 		c.outbox <- hydrationFailure{symbol, date}
 	}
 
-	err = c.database.BatchStoreBars(ctx, bars)
+	err = c.database.BatchStoreBars(ctx, bars, symbol, date)
 	if err != nil {
 		c.logger.Errorf("failed to store fetch ohlc data for ticker: `%s`: %v", symbol, err)
 		os.Exit(1)
@@ -196,16 +196,3 @@ func (c *dataCoordinator) IsReady(t common.Symbol, d civil.Date) bool {
 
 	return false
 }
-
-/*
-THOUGHTS
-
-- Want to avoid refetching data and attempting to insert already present data
-
-- Could add new hydration status table to the database
-
-Process would be:
-	On boot:
-		- Load all fetched statuses from db and use it to init the status map
-
-*/

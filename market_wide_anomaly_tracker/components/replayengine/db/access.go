@@ -14,7 +14,7 @@ import (
 )
 
 type Database interface {
-	BatchStoreBars(ctx context.Context, bars common.Series) error
+	BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error
 	GetCompleteTradingDay(ctx context.Context, day civil.Date, symbol string) (common.Series, error)
 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
 }
@@ -52,7 +52,7 @@ func (db *database) getConn(ctx context.Context) (*pgxpool.Conn, error) {
 
 // Note - future optimisation: This could likely be quicker if I implement the
 // CopyFromSource interface (to avoid buffering in memory)
-func (db *database) BatchStoreBars(ctx context.Context, bars common.Series) error {
+func (db *database) BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error {
 	conn, err := db.getConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -78,8 +78,19 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.Series) erro
 		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(bars))
 	}
 
+	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit tx: %w", err)
+	}
+	return nil
+}
+
+func (db *database) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol common.Symbol, date civil.Date) error {
+	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
+	_, err := tx.Exec(ctx, stmt, symbol, date.String())
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -127,13 +138,6 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, day civil.Date, s
 	return bars, nil
 }
 
-// CREATE TABLE hydration_state_1sec (
-//
-//	symbol TEXT,
-//	day    DATE,
-//	PRIMARY KEY (symbol, day)
-//
-// )
 func (db *database) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
 	conn, err := db.getConn(ctx)
 	if err != nil {
