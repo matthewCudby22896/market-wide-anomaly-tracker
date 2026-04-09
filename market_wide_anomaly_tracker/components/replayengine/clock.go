@@ -14,8 +14,12 @@ type Clock interface {
 	RegisterPipe(chan<- int64)
 	Pause()
 	Resume()
+	IsPaused() bool
+	ResetState()
 }
 
+// TODO: think more carefully about the use of sync.Mutex here
+// Can likely be simplified
 type clock struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
@@ -25,6 +29,8 @@ type clock struct {
 
 	isPausedMu sync.Mutex
 	isPaused   bool
+
+	globalTime int64 // Unix Milli
 
 	subscribersMu sync.Mutex
 	subscribers   map[chan<- int64]struct{}
@@ -59,7 +65,7 @@ func (c *clock) Start() {
 	go func() {
 		defer c.wg.Done()
 
-		globalTime := c.clockSettings.startTime
+		c.globalTime = c.clockSettings.startTime
 
 		// Init Ticker
 		interval := time.Duration(float64(time.Second) / float64(c.speedup)) // int64
@@ -72,12 +78,11 @@ func (c *clock) Start() {
 			case <-t.C:
 				c.isPausedMu.Lock()
 				if c.isPaused {
+					c.isPausedMu.Unlock()
 					continue
 				}
+				c.globalTime += 1000
 				c.isPausedMu.Unlock()
-
-				// 1 Sec (1000 Millisecond)
-				globalTime += 1000
 
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
@@ -93,6 +98,14 @@ func (c *clock) Start() {
 		}
 	}()
 	c.logger.Info("started.")
+}
+
+func (c *clock) ResetState() {
+	// Attaining this lock essentially pauses the clock
+	c.isPausedMu.Lock()
+	defer c.isPausedMu.Unlock()
+
+	c.globalTime = c.clockSettings.startTime
 }
 
 func (c *clock) Shutdown() {
@@ -117,4 +130,10 @@ func (c *clock) Resume() {
 	c.isPausedMu.Lock()
 	defer c.isPausedMu.Unlock()
 	c.isPaused = false
+}
+
+func (c *clock) IsPaused() bool {
+	c.isPausedMu.Lock()
+	defer c.isPausedMu.Unlock()
+	return c.isPaused
 }

@@ -16,6 +16,7 @@ type SymbolThread interface {
 	AsynShutdown()
 	GetTickPipe() chan<- int64
 	SetOutbox(outbox chan<- BroadcastMessage)
+	Restart()
 }
 
 type symbolThread struct {
@@ -118,4 +119,13 @@ func (t *symbolThread) GetTickPipe() chan<- int64 {
 
 func (t *symbolThread) SetOutbox(outbox chan<- BroadcastMessage) {
 	t.outbox = outbox
+}
+
+func (t *symbolThread) Restart() {
+	t.Shutdown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Ctx = ctx
+	t.CancelCtx = cancel
+	t.Start()
 }

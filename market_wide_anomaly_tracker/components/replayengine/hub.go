@@ -64,6 +64,7 @@ type Hub interface {
 	RegisterClient(c *client)
 	PauseSimulation()
 	ResumeSimulation()
+	RestartSimulation()
 }
 
 // hub implements the Hub interface
@@ -203,6 +204,28 @@ func (h *hub) PauseSimulation() {
 
 func (h *hub) ResumeSimulation() {
 	h.Clock.Resume()
+}
+
+func (h *hub) RestartSimulation() {
+	wasPaused := h.Clock.IsPaused()
+	h.Clock.Pause()
+	h.Clock.ResetState()
+
+	if wasPaused && !h.Clock.IsPaused() {
+		h.Clock.Pause()
+	} else if !wasPaused && h.Clock.IsPaused() {
+		h.Clock.Resume()
+	}
+
+	wg := sync.WaitGroup{}
+	for _, symbolThread := range h.symbolThreads {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			symbolThread.Restart()
+		}()
+	}
+	wg.Wait()
 }
 
 func (h *hub) handleSub(req subRequest) {
