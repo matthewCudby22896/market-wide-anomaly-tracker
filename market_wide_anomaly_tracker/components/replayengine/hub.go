@@ -65,6 +65,7 @@ type Hub interface {
 	PauseSimulation()
 	ResumeSimulation()
 	RestartSimulation()
+	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
 }
 
 // hub implements the Hub interface
@@ -226,6 +227,10 @@ func (h *hub) RestartSimulation() {
 		}()
 	}
 	wg.Wait()
+}
+
+func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error {
+	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
 }
 
 func (h *hub) handleSub(req subRequest) {
