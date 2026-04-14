@@ -16,6 +16,7 @@ type Clock interface {
 	Resume()
 	IsPaused() bool
 	ResetState()
+	UpdateClockSettings(speedup float32, date civil.Date)
 }
 
 // TODO: think more carefully about the use of sync.Mutex here
@@ -84,11 +85,14 @@ func (c *clock) Start() {
 				c.globalTime += 1000
 				c.isPausedMu.Unlock()
 
+				// TODO: Remove
+				c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
+
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
 					// Non-blocking send
 					select {
-					case pipe <- globalTime:
+					case pipe <- c.globalTime:
 					default:
 						// Do nothing
 					}
@@ -136,4 +140,11 @@ func (c *clock) IsPaused() bool {
 	c.isPausedMu.Lock()
 	defer c.isPausedMu.Unlock()
 	return c.isPaused
+}
+
+func (c *clock) UpdateClockSettings(speedup float32, date civil.Date) {
+	c.clockSettings = clockSettings{
+		startTime: common.NYSEOpenUnixMilli(date),
+		speedup:   speedup,
+	}
 }

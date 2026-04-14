@@ -66,52 +66,78 @@ type Hub interface {
 	ResumeSimulation()
 	RestartSimulation()
 	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
+	GetSimulationSettings() simulationSettings
+	SetSimulationSettings(newSettings simulationSettings)
 }
+
+/*
+Settings:
+
+- Do I need a mutex?
+- Getting is simple
+
+Setting Settings:
+- Should implicitly restart the simulation
+*/
 
 // hub implements the Hub interface
 type hub struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
+	logger    ComponentLogger
+	settings  simulationSettings
 
 	clientRequestInbox chan ClientRequest
+	broadcastInbox     chan BroadcastMessage
+	dataInfoInbox      chan any
 
-	broadcast chan BroadcastMessage
-
-	clients               map[*client]struct{} // A 'Set' of the registered clients
+	clients               map[*client]struct{}
 	symbolToClient        map[common.Symbol]map[*client]struct{}
 	symbolThreads         map[common.Symbol]*symbolThread
 	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
-
-	notificationChan chan any
-	logger           ComponentLogger
 
 	DataCoordinator
 	Clock
 	Database db.Database
 }
 
+type simulationSettings struct {
+	Speedup float32
+	Date    civil.Date
+}
+
+func defaultSimulationSettings() simulationSettings {
+	return simulationSettings{
+		Speedup: 1,
+		Date:    DEFAULT_DAY,
+	}
+}
+
 func NewHub(database db.Database) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	settings := defaultSimulationSettings()
 
 	h := &hub{
 		Ctx:                   ctx,
 		CancelCtx:             cancel,
 		wg:                    sync.WaitGroup{},
+		logger:                NewLogger("Hub"),
+		settings:              settings,
 		clientRequestInbox:    make(chan ClientRequest, 1024),
-		broadcast:             make(chan BroadcastMessage, 1024),
-		notificationChan:      make(chan any, 1024),
+		broadcastInbox:        make(chan BroadcastMessage, 1024),
+		dataInfoInbox:         make(chan any, 1024),
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
 		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
 		symbolThreads:         make(map[common.Symbol]*symbolThread),
-		logger:                NewLogger("Hub"),
 		DataCoordinator:       NewDataCoordinator(database),
 		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
 		Database:              database,
 	}
 
-	h.DataCoordinator.SetOutbox(h.notificationChan)
+	h.DataCoordinator.SetOutbox(h.dataInfoInbox)
 
 	return h
 }
@@ -145,7 +171,7 @@ func (h *hub) Start() {
 			case <-h.Ctx.Done():
 				return
 
-			case msg := <-h.broadcast:
+			case msg := <-h.broadcastInbox:
 				h.handleBroadcast(msg)
 
 			case req := <-h.clientRequestInbox:
@@ -160,7 +186,7 @@ func (h *hub) Start() {
 					h.handleUnsub(v)
 				}
 
-			case notification := <-h.notificationChan:
+			case notification := <-h.dataInfoInbox:
 				switch v := notification.(type) {
 				case hydrationSuccess:
 					h.logger.Info("hydrationSuccess notification recieved: %#v\n", v)
@@ -212,12 +238,39 @@ func (h *hub) RestartSimulation() {
 	h.Clock.Pause()
 	h.Clock.ResetState()
 
+	h.restartSymbolThreads()
+
 	if wasPaused && !h.Clock.IsPaused() {
 		h.Clock.Pause()
 	} else if !wasPaused && h.Clock.IsPaused() {
 		h.Clock.Resume()
 	}
+}
 
+func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error {
+	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
+}
+
+func (h *hub) GetSimulationSettings() simulationSettings {
+	return h.settings
+}
+
+func (h *hub) SetSimulationSettings(settings simulationSettings) {
+	wasPaused := h.Clock.IsPaused()
+	h.Clock.Pause()
+	h.Clock.UpdateClockSettings(settings.Speedup, settings.Date)
+	h.Clock.ResetState()
+
+	h.restartSymbolThreads()
+
+	if wasPaused && !h.Clock.IsPaused() {
+		h.Clock.Pause()
+	} else if !wasPaused && h.Clock.IsPaused() {
+		h.Clock.Resume()
+	}
+}
+
+func (h *hub) restartSymbolThreads() {
 	wg := sync.WaitGroup{}
 	for _, symbolThread := range h.symbolThreads {
 		wg.Add(1)
@@ -227,10 +280,6 @@ func (h *hub) RestartSimulation() {
 		}()
 	}
 	wg.Wait()
-}
-
-func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error {
-	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
 }
 
 func (h *hub) handleSub(req subRequest) {
@@ -244,7 +293,7 @@ func (h *hub) handleSub(req subRequest) {
 			if h.DataCoordinator.IsReady(symbol, DEFAULT_DAY) {
 
 				// If ready, notify main loop
-				h.notificationChan <- hydrationSuccess{
+				h.dataInfoInbox <- hydrationSuccess{
 					Symbol: symbol,
 					Date:   DEFAULT_DAY,
 				}
@@ -326,7 +375,7 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 
 	// 1. Init symbol thread
 	thread := NewSymbolThread(h, symbol, date, h.Database)
-	thread.outbox = h.broadcast
+	thread.outbox = h.broadcastInbox
 
 	// 2. Register it with the clock s.t. it recieves ticks
 	h.Clock.RegisterPipe(thread.GetTickPipe())
