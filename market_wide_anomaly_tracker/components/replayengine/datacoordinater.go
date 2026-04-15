@@ -141,25 +141,26 @@ var AlreadyHydratedErr error = errors.New("symbol is already hydrated")
 
 var AlreadyHydratingErr error = errors.New("symbol is currently hydrating")
 
-// HydrateSymbol fetches and stores the data series for a given symbol-date combo.
+// HydrateSymbol fetches and stores the data series for a given symbol-date combination
 func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) (err error) {
 	dateStr := date.String()
 
-	c.statusMapMu.Lock()
-	state := c.getStateWOLock(symbol, dateStr)
-
-	switch state {
-	case READY:
-		c.statusMapMu.Unlock()
-		return AlreadyHydratedErr
-	case HYDRATING:
-		c.statusMapMu.Unlock()
-		return AlreadyHydratingErr
+	err = func() error {
+		c.statusMapMu.Lock()
+		defer c.statusMapMu.Unlock()
+		state := c.getStateWOLock(symbol, dateStr)
+		switch state {
+		case READY:
+			return AlreadyHydratedErr
+		case HYDRATING:
+			return AlreadyHydratingErr
+		}
+		c.statusMap[dateStr][symbol] = HYDRATING
+		return nil
+	}()
+	if err != nil {
+		return err
 	}
-
-	// <-- state is implicitly either NONE or FAILED
-	c.statusMap[dateStr][symbol] = HYDRATING
-	c.statusMapMu.Unlock()
 
 	defer func() {
 		if err != nil {
