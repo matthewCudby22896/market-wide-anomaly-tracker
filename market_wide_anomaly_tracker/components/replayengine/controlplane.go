@@ -3,6 +3,7 @@ package replayengine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -100,7 +101,9 @@ type hydrationReqBody struct {
 }
 
 func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Request) {
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "this endpoint only accepts POST requests", http.StatusMethodNotAllowed)
 	}
@@ -109,46 +112,29 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
 		http.Error(w, "request body was not in expected form", http.StatusBadRequest)
+		return
 	}
 
 	symbol, date, err := validateHydrateRequest(body)
 	if err != nil {
-		http.Error(
-			w,
-			fmt.Errorf("bad request: %w", err).Error(),
-			http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("bad request: %s", err), http.StatusBadRequest)
+		return
 	}
 
 	err = s.Hub.HydrateSymbol(ctx, symbol, date)
-
 	if err != nil {
-		switch _err := err.(type) {
-		case AlreadyHydratedErr:
-			http.Error(
-				w,
-				fmt.Errorf("symbol already hydrated").Error(),
-				http.StatusInternalServerError,
-			)
-			return
-
-		case AlreadyHydratingErr:
-			http.Error(
-				w,
-				fmt.Errorf("symbol currently hydrating").Error(),
-				http.StatusInternalServerError,
-			)
-			return
-
+		switch {
+		case errors.Is(err, AlreadyHydratedErr):
+			http.Error(w, "symbol is already hydrated", http.StatusBadRequest)
+		case errors.Is(err, AlreadyHydratingErr):
+			http.Error(w, "symbol is already currently hydrating", http.StatusBadRequest)
 		default:
-			http.Error(
-				w,
-				fmt.Errorf("An unexpected error occured: %w", _err).Error(),
-				http.StatusInternalServerError,
-			)
-			return
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 		}
+		return
 	}
-	returnSuccessWithMessage(w, fmt.Sprintf("%s-%s succesfully hydrated", symbol, date.String()))
+
+	returnSuccessWithMessage(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
 func validateHydrateRequest(req hydrationReqBody) (common.Symbol, civil.Date, error) {

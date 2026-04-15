@@ -2,6 +2,7 @@ package replayengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -136,29 +137,9 @@ func (c *dataCoordinator) SetOutbox(outbox chan any) {
 	c.outbox = outbox
 }
 
-type BaseError struct {
-	msg string
-}
+var AlreadyHydratedErr error = errors.New("symbol is already hydrated")
 
-func (err BaseError) Error() string {
-	return err.msg
-}
-
-type AlreadyHydratedErr struct {
-	BaseError
-}
-
-type AlreadyHydratingErr struct {
-	BaseError
-}
-
-func newAlreadyHydratedError(msg string) AlreadyHydratedErr {
-	return AlreadyHydratedErr{BaseError{msg}}
-}
-
-func newAlreadyHydratingError(msg string) AlreadyHydratingErr {
-	return AlreadyHydratingErr{BaseError{msg}}
-}
+var AlreadyHydratingErr error = errors.New("symbol is currently hydrating")
 
 // HydrateSymbol fetches and stores the data series for a given symbol-date combo.
 func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) (err error) {
@@ -170,10 +151,10 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbo
 	switch state {
 	case READY:
 		c.statusMapMu.Unlock()
-		return newAlreadyHydratedError("already hydrated")
+		return AlreadyHydratedErr
 	case HYDRATING:
 		c.statusMapMu.Unlock()
-		return newAlreadyHydratingError("already in process of hydrating")
+		return AlreadyHydratingErr
 	}
 
 	// <-- state is implicitly either NONE or FAILED
