@@ -46,3 +46,9 @@ func UnixMilliToTimestampNYC(unixMilli int64) string {
 	timestampStr := nyTime.Format("2006-01-02 03:04:05 PM MST")
 	return timestampStr
 }
+
+func IsWeekday(date civil.Date) bool {
+	t := date.In(time.UTC)
+	day := t.Weekday()
+	return day >= 1 && day <= 5
+}

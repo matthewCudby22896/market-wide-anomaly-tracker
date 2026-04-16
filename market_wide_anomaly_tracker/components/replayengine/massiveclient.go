@@ -15,9 +15,9 @@ import (
 )
 
 /*
-	Requirements
+	Requirements:
 
-	Must stay under 100 requests per second
+	- Must stay under 100 requests per second
 */
 
 type MassiveClient interface {

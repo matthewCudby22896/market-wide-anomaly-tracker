@@ -5,12 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
+
+type settingsPayload struct {
+	Timescale      float32 `json:"timescale"`
+	SimulationDate string  `json:"simulation_date"`
+}
+
+type hydrationRequest struct {
+	Symbol string `json:"symbol"`
+	Date   string `json:"date"`
+}
 
 func (s *replayEngineServer) handlePause(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -20,7 +31,7 @@ func (s *replayEngineServer) handlePause(w http.ResponseWriter, r *http.Request)
 
 	s.Hub.PauseSimulation()
 
-	returnSuccessWithMessage(w, "simulation paused")
+	successWithMsg(w, "simulation paused")
 }
 
 func (s *replayEngineServer) handleResume(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +42,7 @@ func (s *replayEngineServer) handleResume(w http.ResponseWriter, r *http.Request
 
 	s.Hub.ResumeSimulation()
 
-	returnSuccessWithMessage(w, "simulation resumed")
+	successWithMsg(w, "simulation resumed")
 }
 
 func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Request) {
@@ -42,39 +53,39 @@ func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Reques
 
 	s.Hub.RestartSimulation()
 
-	returnSuccessWithMessage(w, "simulation restart succesful")
-}
-
-type settingsPayload struct {
-	Speedup       float32 `json:"speedup"`
-	SimulatedDate string  `json:"simulated_date"`
+	successWithMsg(w, "simulation restart succesful")
 }
 
 func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		payload := settingsPayload{}
-		err := json.NewDecoder(r.Body).Decode(&payload)
-
+		err := Decode(r.Body, &payload)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("failed to decode request body: %s", err.Error())})
+			msg := fmt.Sprintf("failed to marshal request body: %s", err)
+			errorWithMsg(w, msg, http.StatusBadRequest)
+			return
 		}
 
-		validSettings, err := valid
+		settings, err := validateSettings(payload)
+		if err != nil {
+			msg := fmt.Sprintf("provided settings are invalid: %s", err)
+			errorWithMsg(w, msg, http.StatusBadRequest)
+			return
+
+		}
+		s.Hub.SetSimulationSettings(settings)
+		successWithMsg(w, "settings successfully updated")
 
 	case http.MethodGet:
 		settings := s.Hub.GetSimulationSettings()
 
 		payload := settingsPayload{
-			Speedup:       settings.Speedup,
-			SimulatedDate: settings.Date.String(),
+			Timescale:      settings.Timescale,
+			SimulationDate: settings.Date.String(),
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(payload)
+		successWithPayload(w, payload)
 		return
 
 	default:
@@ -83,21 +94,20 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// TODO: finish implementing
-func validateSettings(payload settingsPayload) (simulationSettings, error) {
-	speedup := payload.Speedup
-	dateStr := payload.SimulatedDate
-
-	date, err := civil.ParseDate(dateStr)
+func validateSettings(payload settingsPayload) (*simulationSettings, error) {
+	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
-		return simulationSettings{}, fmt.Errorf("failed to parse date `%s` : %w", date, err)
+		return nil, err
 	}
-	return simulationSettings{speedup, date}, nil
-}
 
-type hydrationReqBody struct {
-	Symbol string `json:"symbol"`
-	Date   string `json:"date"`
+	timescale, err := validateTimeScale(payload.Timescale)
+	if err != nil {
+		return nil, err
+	}
+
+	settings := &simulationSettings{timescale, date}
+
+	return settings, nil
 }
 
 func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Request) {
@@ -105,19 +115,20 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	defer cancel()
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "this endpoint only accepts POST requests", http.StatusMethodNotAllowed)
+		errorWithMsg(w, "this endpoint only accepts POST requests", http.StatusMethodNotAllowed)
+		return
 	}
 
-	body := hydrationReqBody{}
-	err := json.NewDecoder(r.Body).Decode(&body)
+	body := hydrationRequest{}
+	err := Decode(r.Body, &body)
 	if err != nil {
-		http.Error(w, "request body was not in expected form", http.StatusBadRequest)
+		errorWithMsg(w, "request body was not in expected form", http.StatusBadRequest)
 		return
 	}
 
 	symbol, date, err := validateHydrateRequest(body)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("bad request: %s", err), http.StatusBadRequest)
+		errorWithMsg(w, fmt.Sprintf("bad request: %s", err), http.StatusBadRequest)
 		return
 	}
 
@@ -125,33 +136,78 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		switch {
 		case errors.Is(err, AlreadyHydratedErr):
-			http.Error(w, "symbol is already hydrated", http.StatusBadRequest)
+			errorWithMsg(w, "symbol is already hydrated", http.StatusBadRequest)
 		case errors.Is(err, AlreadyHydratingErr):
-			http.Error(w, "symbol is already currently hydrating", http.StatusBadRequest)
+			errorWithMsg(w, "symbol is already currently hydrating", http.StatusBadRequest)
 		default:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			errorWithMsg(w, "internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	returnSuccessWithMessage(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
+	successWithMsg(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
-func validateHydrateRequest(req hydrationReqBody) (common.Symbol, civil.Date, error) {
-	date, err := civil.ParseDate(req.Date)
+func validateHydrateRequest(req hydrationRequest) (common.Symbol, civil.Date, error) {
+	date, err := validateDateStr(req.Date)
 	if err != nil {
-		return "", civil.Date{}, fmt.Errorf("failed to parse date: %w", err)
+		return "", civil.Date{}, err
 	}
 	if req.Symbol == "" {
-		return "", civil.Date{}, fmt.Errorf("no symbol provided")
+		return "", civil.Date{}, fmt.Errorf("missing/empty field `symbol`")
 	}
 	symbol := common.Symbol(req.Symbol)
 
 	return symbol, date, nil
 }
 
-func returnSuccessWithMessage(w http.ResponseWriter, msg string) {
+func validateDateStr(dateStr string) (civil.Date, error) {
+	date, err := civil.ParseDate(dateStr)
+	if err != nil {
+		return civil.Date{}, fmt.Errorf("failed to parse `%s` as an RFC3339 date", date.String())
+	}
+	if !common.IsWeekday(date) {
+		return civil.Date{}, fmt.Errorf("`%s` is not a weekday", date.String())
+	}
+	return date, nil
+}
+
+func validateTimeScale(timescale float32) (float32, error) {
+	if timescale < MIN_TIMESCALE {
+		return 0, fmt.Errorf("`%f` is below the minimum timescale of `%f`", timescale, MIN_TIMESCALE)
+	}
+	if timescale > MAX_TIMESCALE {
+		return 0, fmt.Errorf("`%f` is above the maximum timescale of `%f`", timescale, MAX_TIMESCALE)
+	}
+	return timescale, nil
+}
+
+func Decode(src io.ReadCloser, dst any) error {
+	decoder := json.NewDecoder(src)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(dst)
+}
+
+func errorWithMsg(w http.ResponseWriter, errMsg string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": errMsg}); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+func successWithMsg(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"msg": msg}); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+func successWithPayload(w http.ResponseWriter, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }

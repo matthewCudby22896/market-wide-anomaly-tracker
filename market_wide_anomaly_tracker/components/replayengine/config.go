@@ -6,8 +6,13 @@ import (
 
 const WS_SOCKET = ":8080"
 
-var DB_URL string = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
+const DB_URL string = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
+
+const DEFAULT_TIMESCALE float32 = 1.0
 
 var DEFAULT_DAY = civil.Date{Year: 2025, Month: 3, Day: 20}
 
-var DEFAULT_SPEEDUP float32 = 1.0
+const (
+	MAX_TIMESCALE float32 = 60.0
+	MIN_TIMESCALE float32 = 0.1
+)

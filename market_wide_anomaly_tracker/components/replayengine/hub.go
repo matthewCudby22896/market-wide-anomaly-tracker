@@ -67,7 +67,7 @@ type Hub interface {
 	RestartSimulation()
 	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
 	GetSimulationSettings() simulationSettings
-	SetSimulationSettings(newSettings simulationSettings)
+	SetSimulationSettings(newSettings *simulationSettings)
 }
 
 /*
@@ -103,14 +103,14 @@ type hub struct {
 }
 
 type simulationSettings struct {
-	Speedup float32
-	Date    civil.Date
+	Timescale float32
+	Date      civil.Date
 }
 
 func defaultSimulationSettings() simulationSettings {
 	return simulationSettings{
-		Speedup: 1,
-		Date:    DEFAULT_DAY,
+		Timescale: 1.0,
+		Date:      DEFAULT_DAY,
 	}
 }
 
@@ -133,7 +133,7 @@ func NewHub(database db.Database) *hub {
 		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
 		symbolThreads:         make(map[common.Symbol]*symbolThread),
 		DataCoordinator:       NewDataCoordinator(database),
-		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
+		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_TIMESCALE),
 		Database:              database,
 	}
 
@@ -258,7 +258,7 @@ func (h *hub) GetSimulationSettings() simulationSettings {
 func (h *hub) SetSimulationSettings(settings simulationSettings) {
 	wasPaused := h.Clock.IsPaused()
 	h.Clock.Pause()
-	h.Clock.UpdateClockSettings(settings.Speedup, settings.Date)
+	h.Clock.UpdateClockSettings(settings.Timescale, settings.Date)
 	h.Clock.ResetState()
 
 	h.restartSymbolThreads()
