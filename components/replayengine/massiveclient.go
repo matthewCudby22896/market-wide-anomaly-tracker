@@ -11,7 +11,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/massive-com/client-go/v3/rest"
 	"github.com/massive-com/client-go/v3/rest/gen"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 /*

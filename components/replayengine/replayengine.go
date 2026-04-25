@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
+	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
 type ReplayEnginerServer interface {

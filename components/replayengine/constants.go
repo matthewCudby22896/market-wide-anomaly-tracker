@@ -1,6 +1,6 @@
 package replayengine
 
-import "github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+import "github.com/mcudby/mwat/components/replayengine/common"
 
 
 type Message struct {

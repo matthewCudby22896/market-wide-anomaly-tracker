@@ -1,4 +1,4 @@
-module github.com/matthewCudby22896/market_wide_anomaly_tracker
+module github.com/mcudby/mwat
 
 go 1.25.5
 

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 type settingsPayload struct {
