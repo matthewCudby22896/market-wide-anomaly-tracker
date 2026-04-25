@@ -34,6 +34,8 @@ type clock struct {
 	isPaused   bool
 
 	globalTime int64 // Unix Milli
+	interval   time.Duration
+	t          *time.Ticker
 
 	subscribersMu sync.Mutex
 	subscribers   map[chan<- int64]struct{}
@@ -41,7 +43,7 @@ type clock struct {
 
 type clockSettings struct {
 	startTime int64 // Unix Milli
-	speedup   float32
+	timescale float32
 }
 
 func NewClock(day civil.Date, speedup float32) *clock {
@@ -49,7 +51,7 @@ func NewClock(day civil.Date, speedup float32) *clock {
 
 	settings := clockSettings{
 		startTime: common.NYSEOpenUnixMilli(day),
-		speedup:   speedup,
+		timescale: speedup,
 	}
 
 	return &clock{
@@ -63,6 +65,11 @@ func NewClock(day civil.Date, speedup float32) *clock {
 	}
 }
 
+func (c *clock) SetTicker() {
+	c.interval = time.Duration(float64(time.Second) / float64(c.timescale)) // int64
+	c.t = time.NewTicker(time.Duration(c.interval))
+}
+
 func (c *clock) Start() {
 	c.wg.Add(1)
 	go func() {
@@ -71,14 +78,13 @@ func (c *clock) Start() {
 		c.globalTime = c.clockSettings.startTime
 
 		// Init Ticker
-		interval := time.Duration(float64(time.Second) / float64(c.speedup)) // int64
-		t := time.NewTicker(time.Duration(interval))
+		c.SetTicker()
 
 		for {
 			select {
 			case <-c.Ctx.Done():
 				return
-			case <-t.C:
+			case <-c.t.C:
 				c.isPausedMu.Lock()
 				if c.isPaused {
 					c.isPausedMu.Unlock()
@@ -88,7 +94,7 @@ func (c *clock) Start() {
 				c.isPausedMu.Unlock()
 
 				// TODO: Remove
-				// c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
+				c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
 
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
@@ -111,6 +117,7 @@ func (c *clock) ResetState() {
 	c.isPausedMu.Lock()
 	defer c.isPausedMu.Unlock()
 
+	c.SetTicker()
 	c.globalTime = c.clockSettings.startTime
 }
 
@@ -144,9 +151,9 @@ func (c *clock) IsPaused() bool {
 	return c.isPaused
 }
 
-func (c *clock) UpdateClockSettings(speedup float32, date civil.Date) {
+func (c *clock) UpdateClockSettings(timescale float32, date civil.Date) {
 	c.clockSettings = clockSettings{
 		startTime: common.NYSEOpenUnixMilli(date),
-		speedup:   speedup,
+		timescale: timescale,
 	}
 }

@@ -74,7 +74,7 @@ func NewDataCoordinator(database db.Database) *dataCoordinator {
 		Ctx:           ctx,
 		CancelCtx:     cancel,
 		wg:            sync.WaitGroup{},
-		logger:        NewComponentLogger("DataCoordinator"),
+		logger:        NewComponentLogger(dataCoordinatorID),
 		database:      database,
 		massiveClient: NewMassiveClient(),
 		statusMapMu:   sync.Mutex{},
@@ -185,6 +185,8 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbo
 	if err != nil {
 		return fmt.Errorf("failed to store series for `%s-%s`: %w", symbol, date, err)
 	}
+
+	c.setState(symbol, dateStr, READY)
 	return
 }
 

@@ -78,12 +78,13 @@ Setting Settings:
 
 // hub implements the Hub interface
 type hub struct {
-	ID        string
-	Ctx       context.Context
-	CancelCtx context.CancelFunc
-	wg        sync.WaitGroup
-	logger    *Logger
-	settings  simulationSettings
+	ID           string
+	Ctx          context.Context
+	CancelCtx    context.CancelFunc
+	wg           sync.WaitGroup
+	logger       *Logger
+	settingsLock sync.Mutex
+	settings     simulationSettings
 
 	clientRequestInbox chan ClientRequest
 	broadcastInbox     chan BroadcastMessage
@@ -219,7 +220,7 @@ func (h *hub) Start() {
 			}
 		}
 	}()
-	h.logger.Info("started.")
+	h.logger.LogStart()
 }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
@@ -259,17 +260,23 @@ func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civi
 }
 
 func (h *hub) GetSimulationSettings() simulationSettings {
+	h.settingsLock.Lock()
+	defer h.settingsLock.Unlock()
 	return h.settings
 }
 
 func (h *hub) SetSimulationSettings(settings *simulationSettings) {
+	h.settingsLock.Lock()
+	h.settings = *settings
+	h.settingsLock.Unlock()
+
 	wasPaused := h.Clock.IsPaused()
 	h.Clock.Pause()
 	h.Clock.UpdateClockSettings(settings.Timescale, settings.Date)
 	h.Clock.ResetState()
 
 	h.restartSymbolThreads()
-
+	
 	if wasPaused && !h.Clock.IsPaused() {
 		h.Clock.Pause()
 	} else if !wasPaused && h.Clock.IsPaused() {
@@ -322,7 +329,7 @@ func (h *hub) handleSub(req subRequest) {
 			h.logger.Info(
 				"client already subscribed",
 				"client-id", c.ID,
-				"symbol", symbol, 
+				"symbol", symbol,
 				"num-subscribed", len(h.symbolToClient[symbol]),
 			)
 			continue
@@ -334,7 +341,7 @@ func (h *hub) handleSub(req subRequest) {
 		h.logger.Info(
 			"client subscribed",
 			"client-id", c.ID,
-			"symbol", symbol, 
+			"symbol", symbol,
 			"num-subscribed", len(h.symbolToClient[symbol]),
 		)
 	}
@@ -367,7 +374,7 @@ func (h *hub) handleRegister(req registerRequest) {
 	c := req.Sender
 	h.clients[c] = struct{}{}
 	c.hubRequestOutbox = h.clientRequestInbox
-	h.logger.Info("a client has been registered", "client-id", c.ID, "client-count", len(h.clients))
+	h.logger.Info("client registered to hub", "client-id", c.ID, "client-count", len(h.clients))
 	h.logger.LogStartChild(c.ID)
 	c.Start()
 }
@@ -384,8 +391,8 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 	}
 
 	delete(h.clients, c)
+	h.logger.Info("client unregistered from hub", "client-id", c.ID, "client-count", len(h.clients))
 
-	h.logger.Info("a client has been unregistered")
 }
 
 func (h *hub) killSymbolThread(symbol common.Symbol) {

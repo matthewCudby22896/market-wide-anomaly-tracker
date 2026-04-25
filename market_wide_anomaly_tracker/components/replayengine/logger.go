@@ -34,12 +34,12 @@ func (l *Logger) LogStopChild(childID string) {
 
 // To be called to log the shutdown of the loggers component
 func (l *Logger) LogShutdown(args ...any) {
-	l.Debug("shutdown")
+	l.Info("shutdown complete.")
 }
 
 // To be called to log the start of the loggers component
 func (l *Logger) LogStart(args ...any) {
-	l.Debug("shutdown")
+	l.Info("startup complete.")
 }
 
 // Logs an error and then exits with a 1 status code
@@ -47,4 +47,3 @@ func (l *Logger) Fatal(msg string, args ...any) {
 	l.Error("FATAL - "+msg, args...)
 	os.Exit(1)
 }
-

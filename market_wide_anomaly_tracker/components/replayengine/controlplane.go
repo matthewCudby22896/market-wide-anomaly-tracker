@@ -15,7 +15,7 @@ import (
 
 type settingsPayload struct {
 	Timescale      float32 `json:"timescale"`
-	SimulationDate string  `json:"simulation_date"`
+	SimulationDate string  `json:"simulation-date"`
 }
 
 type hydrationRequest struct {
@@ -31,6 +31,7 @@ func (s *replayEngineServer) handlePause(w http.ResponseWriter, r *http.Request)
 
 	s.Hub.PauseSimulation()
 
+	s.logger.Info("simulation paused")
 	successWithMsg(w, "simulation paused")
 }
 
@@ -42,6 +43,7 @@ func (s *replayEngineServer) handleResume(w http.ResponseWriter, r *http.Request
 
 	s.Hub.ResumeSimulation()
 
+	s.logger.Info("simulation resumed")
 	successWithMsg(w, "simulation resumed")
 }
 
@@ -53,6 +55,7 @@ func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Reques
 
 	s.Hub.RestartSimulation()
 
+	s.logger.Info("simulation restarted")
 	successWithMsg(w, "simulation restart succesful")
 }
 
@@ -62,19 +65,23 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 		payload := settingsPayload{}
 		err := Decode(r.Body, &payload)
 		if err != nil {
-			msg := fmt.Sprintf("failed to marshal request body: %s", err)
-			errorWithMsg(w, msg, http.StatusBadRequest)
+			err := fmt.Errorf("failed to marshal request body: %w", err)
+			s.logger.Info("failed to update settings", "error", err)
+			errorWithMsg(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		settings, err := validateSettings(payload)
 		if err != nil {
-			msg := fmt.Sprintf("provided settings are invalid: %s", err)
-			errorWithMsg(w, msg, http.StatusBadRequest)
+			err := fmt.Errorf("provided settings are invalid: %s", err)
+			s.logger.Info("failed to update settings", "error", err)
+			errorWithMsg(w, err.Error(), http.StatusBadRequest)
 			return
 
 		}
 		s.Hub.SetSimulationSettings(settings)
+
+		s.logger.Info("settings updated", "simulation.date", settings.Date.String(), "simulation.timescale", settings.Timescale)
 		successWithMsg(w, "settings successfully updated")
 
 	case http.MethodGet:
@@ -85,6 +92,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 			SimulationDate: settings.Date.String(),
 		}
 
+		s.logger.Info("simulation settings retrieved")
 		successWithPayload(w, payload)
 		return
 
