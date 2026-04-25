@@ -2,6 +2,7 @@ package replayengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -74,6 +75,10 @@ func (s *replayEngineServer) Start() {
 		s.logger.Info(msg)
 		err := s.Server.ListenAndServe()
 		if err != nil {
+			if errors.Is(err, http.ErrServerClosed) {
+				s.logger.Info("http server closed.")
+				return
+			}
 			s.logger.Error("ListenAndServe() errored", "error", err)
 			return
 		} // Start child components
