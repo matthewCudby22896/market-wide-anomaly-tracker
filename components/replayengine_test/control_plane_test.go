@@ -11,17 +11,44 @@ import (
 
 	"github.com/mcudby/mwat/common"
 	"github.com/stretchr/testify/suite"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var PROJECT_ROOT = common.GetProjectRoot()
 
+const binaryName = "replayengine_binary"
+
 type controlPlaneTestSuite struct {
 	suite.Suite
 
+	// replayengine
 	binaryPath string
+
+	// database
+	dbURL       string
+	dbContainer testcontainers.DockerContainer
+	terminateDB func() error
 }
 
-const binaryName = "replayengine_binary"
+func (s *controlPlaneTestSuite) SetupSuite() {
+	s.requireCompileBinary()
+	s.requireStartTimescaleDB()
+}
+
+func (s *controlPlaneTestSuite) TearDownSuite() {
+	if s.terminateDB != nil {
+		err := s.terminateDB()
+		if err != nil {
+			s.NoError(err)
+		}
+	}
+}
+
+func (s *controlPlaneTestSuite) SetupTest() {
+	// todo: clear timescaledb tables before test starts
+
+}
 
 func (s *controlPlaneTestSuite) requireCompileBinary() {
 	// Create test directory
@@ -44,10 +71,46 @@ func (s *controlPlaneTestSuite) requireCompileBinary() {
 	s.binaryPath = binaryPath
 }
 
-func (s *controlPlaneTestSuite) SetupSuite() {
-	s.requireCompileBinary()
+// Starts the test timescale db
+// Populates:
+// - s.dbURL
+// - s.terminateDB
+func (s *controlPlaneTestSuite) requireStartTimescaleDB() {
+	ctx, _ := context.WithCancel(s.T().Context())
+
+	// Start timescale db container
+	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	timescaleC, err := testcontainers.Run(
+		ctx,
+		"timescale/timescaledb-ha:pg18",
+		testcontainers.WithExposedPorts("5432/tcp"),
+		testcontainers.WithEnv(map[string]string{
+			"POSTGRES_PASSWORD": "password",
+			"POSTGRES_DB":       "postgres",
+		}),
+		testcontainers.WithWaitStrategy(
+			wait.ForListeningPort("5432/tcp"),
+		),
+	)
+	s.Require().NoError(err)
+
+	// Get endpoint
+	endpoint, err := timescaleC.Endpoint(ctx, "")
+	s.Assert().NoError(err)
+
+	s.T().Logf("timescaleDB endpoint: %s", endpoint)
+
+	// Populate suite
+	s.dbURL = fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", endpoint)
+
+	s.terminateDB = func() error {
+		ctx, _ := context.WithTimeout(s.T().Context(), 20*time.Second)
+
+		return timescaleC.Terminate(ctx)
+	}
 }
 
+// todo: be able to specify the port s.t. it can connect to the test db
 func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 	ctx, cancel := context.WithCancel(s.T().Context())
 
@@ -72,16 +135,11 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 
 func (s *controlPlaneTestSuite) TestStartAndStop() {
 	cancel := s.requireStartReplayEngine()
-
-	time.Sleep(3 * time.Second)
-
+	time.Sleep(1 * time.Second)
 	cancel()
 }
 
-func (s *controlPlaneTestSuite) SetupTest() {
-
-}
-
+// Test suite entry point
 func TestDBTestSuite(t *testing.T) {
 	suite.Run(t, new(controlPlaneTestSuite))
 }
