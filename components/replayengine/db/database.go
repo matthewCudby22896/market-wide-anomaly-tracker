@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 type Database interface {

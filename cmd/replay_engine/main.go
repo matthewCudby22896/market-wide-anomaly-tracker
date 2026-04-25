@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	replayengine "github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine"
+	replayengine "github.com/mcudby/mwat/components/replayengine"
 )
 
 func main() {
