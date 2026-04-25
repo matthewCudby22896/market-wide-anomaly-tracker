@@ -2,7 +2,6 @@ package replayengine
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -16,10 +15,12 @@ import (
 )
 
 /*
-	Requirements
+	Requirements:
 
-	Must stay under 100 requests per second
+	- Must stay under 100 requests per second
 */
+
+const massiveClientID = "massive-client"
 
 type MassiveClient interface {
 	LifeCycle
@@ -27,11 +28,12 @@ type MassiveClient interface {
 }
 
 type massiveClient struct {
+	ID               string
 	Ctx              context.Context
 	CancelCtx        context.CancelFunc
 	wg               sync.WaitGroup
 	RequestTokenChan chan struct{}
-	logger           ComponentLogger
+	logger           *Logger
 	client           *rest.Client
 }
 
@@ -47,11 +49,12 @@ func NewMassiveClient() *massiveClient {
 	)
 
 	return &massiveClient{
+		ID:               massiveClientID,
 		Ctx:              ctx,
 		CancelCtx:        cancel,
 		wg:               sync.WaitGroup{},
 		RequestTokenChan: make(chan struct{}, 5),
-		logger:           NewLogger("MassiveClient"),
+		logger:           NewComponentLogger(massiveClientID),
 		client:           client,
 	}
 }
@@ -75,7 +78,7 @@ func (c *massiveClient) Start() {
 			}
 		}
 	}()
-	c.logger.Info("started.")
+	c.logger.LogStart()
 }
 
 func (c *massiveClient) Shutdown() {
@@ -112,7 +115,6 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 	aggregateData := make([]common.Bar, 0, 4680)
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
-	// TODO: Remove
 	i := 0
 	for iter.Next() {
 		item := iter.Item()
@@ -139,11 +141,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 		}
 		aggregateData = append(aggregateData, bar)
 		i++
-		// TODO: Remove
-		fmt.Printf("[%d] %#v \n", i, bar)
 	}
-	// TODO: Remove
-	fmt.Printf("len arr: %d\n", len(aggregateData))
 
 	return aggregateData, nil
 }

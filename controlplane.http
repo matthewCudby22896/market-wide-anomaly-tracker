@@ -1,0 +1,63 @@
+### Pause
+POST http://localhost:8080/simulation/pause
+
+### Resume
+POST http://localhost:8080/simulation/resume
+
+### Restart
+
+POST http://localhost:8080/simulation/restart
+
+# Symbol Hydration
+
+### AMD
+POST http://localhost:8080/control/hydrate
+Content-Type: application/json
+
+{
+    "symbol": "AMD",
+    "date": "2025-03-20"
+}
+
+### NVDA
+
+POST http://localhost:8080/control/hydrate
+Content-Type: application/json
+
+{
+    "symbol": "NVDA",
+    "date": "2025-03-20"
+}
+
+### GET Settings
+
+GET http://localhost:8080/control/settings
+
+
+### POST (Set) Settings 1.0 timescale
+POST http://localhost:8080/control/settings
+Content-Type: application/json
+
+{
+    "timescale": 1.0,
+    "simulation-date": "2025-03-20"
+}
+
+
+### POST (Set) Settings 2.0 timescale
+POST http://localhost:8080/control/settings
+Content-Type: application/json
+
+{
+    "timescale": 5.0,
+    "simulation-date": "2025-03-20"
+}
+
+### 
+POST http://localhost:8080/control/settings
+Content-Type: application/json
+
+{
+    "timescale": 60.0,
+    "simulation-date": "2025-03-20"
+}

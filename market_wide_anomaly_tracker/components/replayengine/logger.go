@@ -1,50 +1,49 @@
 package replayengine
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 )
 
-type ComponentLogger interface {
-	Info(fstring string, args ...any)
-	Errorf(fstring string, args ...any)
-	Fatalf(fstring string, args ...any)
-	LogStartChild(childName string)
-	LogShutdownChild(childName string)
-	LogShutdown()
+type Logger struct {
+	slog.Logger
 }
 
-type logger struct {
-	componentName string
-}
+const keyComponent = "component-id"
+const keyChild = "child-id"
 
-func NewLogger(componentName string) *logger {
-	return &logger{
-		componentName: componentName,
+func NewComponentLogger(componentID string) *Logger {
+	componentAttr := slog.String(keyComponent, componentID)
+
+	slogger := slog.New(slog.NewTextHandler(os.Stdout, nil).WithAttrs([]slog.Attr{componentAttr}))
+
+	return &Logger{
+		*slogger,
 	}
 }
 
-func (l *logger) Info(fstring string, args ...any) {
-	fmt.Printf("[%s] INFO - %s\n", l.componentName, fmt.Sprintf(fstring, args...))
+// To be called when a component calls Start() on a child component
+func (l *Logger) LogStartChild(childID string) {
+	l.Debug("starting child", keyChild, childID)
 }
 
-func (l *logger) Errorf(fstring string, args ...any) {
-	fmt.Printf("[%s] ERROR - %s\n", l.componentName, fmt.Sprintf(fstring, args...))
+// To be called when a component calls Stop() on a child component
+func (l *Logger) LogStopChild(childID string) {
+	l.Debug("stopping child", keyChild, childID)
 }
 
-func (l *logger) Fatalf(fstring string, args ...any) {
-	fmt.Printf("[%s] FATAL - %s\n", l.componentName, fmt.Sprintf(fstring, args...))
+// To be called to log the shutdown of the loggers component
+func (l *Logger) LogShutdown(args ...any) {
+	l.Info("shutdown complete.")
+}
+
+// To be called to log the start of the loggers component
+func (l *Logger) LogStart(args ...any) {
+	l.Info("startup complete.")
+}
+
+// Logs an error and then exits with a 1 status code
+func (l *Logger) Fatal(msg string, args ...any) {
+	l.Error("FATAL - "+msg, args...)
 	os.Exit(1)
-}
-
-func (l *logger) LogStartChild(childName string) {
-	l.Info("Starting child component: %s", childName)
-}
-
-func (l *logger) LogShutdownChild(childName string) {
-	l.Info("Triggering shutdown for child component: %s", childName)
-}
-
-func (l *logger) LogShutdown() {
-	l.Info("Shutdown complete.")
 }

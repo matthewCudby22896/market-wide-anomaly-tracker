@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"sync"
 
@@ -22,11 +21,7 @@ const (
 	UNSUB
 )
 
-type hubRequest struct {
-	Type    HubReqType
-	Client  *client
-	Symbols []common.Symbol
-}
+const hubID = "hub"
 
 type ClientRequest interface {
 	GetSender() *client
@@ -61,75 +56,134 @@ type unsubRequest struct {
 type Hub interface {
 	LifeCycle
 
+	GetID() string
 	RegisterClient(c *client)
+	PauseSimulation()
+	ResumeSimulation()
+	RestartSimulation()
+	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
+	GetSimulationSettings() simulationSettings
+	SetSimulationSettings(newSettings *simulationSettings)
 }
+
+/*
+Settings:
+
+- Do I need a mutex?
+- Getting is simple
+
+Setting Settings:
+- Should implicitly restart the simulation
+*/
 
 // hub implements the Hub interface
 type hub struct {
-	Ctx       context.Context
-	CancelCtx context.CancelFunc
-	wg        sync.WaitGroup
+	ID           string
+	Ctx          context.Context
+	CancelCtx    context.CancelFunc
+	wg           sync.WaitGroup
+	logger       *Logger
+	settingsLock sync.Mutex
+	settings     simulationSettings
 
 	clientRequestInbox chan ClientRequest
+	broadcastInbox     chan BroadcastMessage
+	dataInfoInbox      chan any
 
-	broadcast chan BroadcastMessage
-
-	clients               map[*client]struct{} // A 'Set' of the registered clients
+	clients               map[*client]struct{}
 	symbolToClient        map[common.Symbol]map[*client]struct{}
 	symbolThreads         map[common.Symbol]*symbolThread
 	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
 
-	notificationChan chan any
-	logger           ComponentLogger
+	subbedToTimestream map[*client]struct{}
+	timeStreamInbox    <-chan Tick
 
 	DataCoordinator
 	Clock
 	Database db.Database
 }
 
+type simulationSettings struct {
+	Timescale float32
+	Date      civil.Date
+}
+
+func defaultSimulationSettings() simulationSettings {
+	return simulationSettings{
+		Timescale: 1.0,
+		Date:      DEFAULT_DAY,
+	}
+}
+
 func NewHub(database db.Database) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	settings := defaultSimulationSettings()
+
+	timeStreamChan := make(chan Tick, 1)
+
+	// Init clock
+	clock := NewClock(settings.Date, settings.Timescale)
+	clock.timestreamOutbox = timeStreamChan
+
 	h := &hub{
-		Ctx:                   ctx,
-		CancelCtx:             cancel,
-		wg:                    sync.WaitGroup{},
-		clientRequestInbox:    make(chan ClientRequest, 1024),
-		broadcast:             make(chan BroadcastMessage, 1024),
-		notificationChan:      make(chan any, 1024),
+		ID:                 hubID,
+		Ctx:                ctx,
+		CancelCtx:          cancel,
+		wg:                 sync.WaitGroup{},
+		logger:             NewComponentLogger(hubID),
+		settings:           settings,
+		clientRequestInbox: make(chan ClientRequest, 1024),
+		broadcastInbox:     make(chan BroadcastMessage, 1024),
+		dataInfoInbox:      make(chan any, 1024),
+
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
 		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
 		symbolThreads:         make(map[common.Symbol]*symbolThread),
-		logger:                NewLogger("Hub"),
-		DataCoordinator:       NewDataCoordinator(database),
-		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_SPEEDUP),
-		Database:              database,
+
+		subbedToTimestream: make(map[*client]struct{}),
+		timeStreamInbox:    timeStreamChan,
+
+		DataCoordinator: NewDataCoordinator(database),
+		Clock:           clock,
+		Database:        database,
 	}
 
-	h.DataCoordinator.SetOutbox(h.notificationChan)
+	h.DataCoordinator.SetOutbox(h.dataInfoInbox)
 
 	return h
 }
 
-func (h *hub) Shutdown() {
-	// First shutdown all child components (client, ticker threads, data controller)
-	h.logger.LogShutdownChild("DataCoordinator")
-	h.DataCoordinator.Shutdown()
+func (h *hub) GetID() string { return h.ID }
 
-	for ticker, tickerThread := range h.symbolThreads {
-		h.logger.LogShutdownChild(fmt.Sprintf("TickerThread-%s", ticker))
-		tickerThread.Shutdown()
+func (h *hub) Shutdown() {
+	// Shutdown all child components:
+	// - clients
+	// - symbol threads
+	// - data controller
+
+	for client := range h.clients {
+		h.logger.LogStopChild(client.ID)
+		client.Shutdown()
 	}
 
-	// Then shutdown itself
+	h.logger.LogStopChild(h.DataCoordinator.GetID())
+	h.DataCoordinator.Shutdown()
+
+	for _, symbolThread := range h.symbolThreads {
+		h.logger.LogStopChild(symbolThread.ID)
+		symbolThread.Shutdown()
+	}
+
+	// Shutdown self
 	h.CancelCtx()
 	h.wg.Wait()
 	h.logger.LogShutdown()
 }
 
 func (h *hub) Start() {
-	h.logger.LogStartChild("DataCoordinator")
+	h.logger.LogStartChild(h.DataCoordinator.GetID())
 	h.DataCoordinator.Start()
 	h.Clock.Start()
 
@@ -141,7 +195,7 @@ func (h *hub) Start() {
 			case <-h.Ctx.Done():
 				return
 
-			case msg := <-h.broadcast:
+			case msg := <-h.broadcastInbox:
 				h.handleBroadcast(msg)
 
 			case req := <-h.clientRequestInbox:
@@ -156,17 +210,17 @@ func (h *hub) Start() {
 					h.handleUnsub(v)
 				}
 
-			case notification := <-h.notificationChan:
+			case notification := <-h.dataInfoInbox:
 				switch v := notification.(type) {
 				case hydrationSuccess:
-					h.logger.Info("hydrationSuccess notification recieved: %#v\n", v)
+					h.logger.Info("hydration notification received", "notification", v)
 					h.StartTickerThread(v.Symbol, v.Date)
 
 				case hydrationFailure:
-					h.logger.Info("hydrationFailure notification recieved: %#v\n", v)
+					h.logger.Info("hydration failure notification received", "notification", v)
 
 					clients := h.symbolToClient[v.Symbol]
-					for c, _ := range clients {
+					for c := range clients {
 						c.Outbox() <- struct{ msg string }{
 							msg: fmt.Sprintf("hydration failed for symbol '%s'", v.Symbol),
 						}
@@ -175,17 +229,19 @@ func (h *hub) Start() {
 					delete(h.symbolToClient, v.Symbol)
 
 				default:
-					h.logger.Errorf("unrecognised notification recieved: %#v\n", v)
-					os.Exit(1)
+					h.logger.Fatal("unrecognised notification received", "notification", v)
+				}
+			case tick := <-h.timeStreamInbox:
+				for c := range h.subbedToTimestream {
+					c.outbox <- tick
 				}
 			}
 		}
 	}()
-	h.logger.Info("started.")
+	h.logger.LogStart()
 }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
-	// Fan-out msg to subscribed clients
 	for client := range h.symbolToClient[msg.Symbol] {
 		client.Outbox() <- msg.Data
 	}
@@ -195,18 +251,119 @@ func (h *hub) RegisterClient(c *client) {
 	h.clientRequestInbox <- registerRequest{BaseRequest{c}}
 }
 
+func (h *hub) PauseSimulation() {
+	h.Clock.Pause()
+}
+
+func (h *hub) ResumeSimulation() {
+	h.Clock.Resume()
+}
+
+func (h *hub) RestartSimulation() {
+	wasPaused := h.Clock.IsPaused()
+	h.Clock.Pause()
+	h.Clock.ResetState()
+
+	h.restartSymbolThreads()
+
+	if wasPaused && !h.Clock.IsPaused() {
+		h.Clock.Pause()
+	} else if !wasPaused && h.Clock.IsPaused() {
+		h.Clock.Resume()
+	}
+}
+
+func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error {
+	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
+}
+
+func (h *hub) GetSimulationSettings() simulationSettings {
+	h.settingsLock.Lock()
+	defer h.settingsLock.Unlock()
+	return h.settings
+}
+
+func (h *hub) SetSimulationSettings(settings *simulationSettings) {
+	h.settingsLock.Lock()
+	h.settings = *settings
+	h.settingsLock.Unlock()
+
+	wasPaused := h.Clock.IsPaused()
+	h.Clock.Pause()
+	h.Clock.UpdateClockSettings(settings.Timescale, settings.Date)
+	h.Clock.ResetState()
+
+	h.restartSymbolThreads()
+
+	if wasPaused && !h.Clock.IsPaused() {
+		h.Clock.Pause()
+	} else if !wasPaused && h.Clock.IsPaused() {
+		h.Clock.Resume()
+	}
+}
+
+func (h *hub) restartSymbolThreads() {
+	wg := sync.WaitGroup{}
+	for _, symbolThread := range h.symbolThreads {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.logger.Info("restarting symbol thread", "symbol-thread-id", symbolThread.ID)
+			symbolThread.Restart()
+		}()
+	}
+	wg.Wait()
+}
+
+const TIMESTREAM = "TIMESTREAM"
+
+func (h *hub) subToTimestream(c *client) {
+	if _, ok := h.subbedToTimestream[c]; ok {
+		h.logger.Info(
+			"client already subscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	} else {
+		h.subbedToTimestream[c] = struct{}{}
+		h.logger.Info(
+			"client subscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	}
+}
+
+func (h *hub) unsubToTimestream(c *client) {
+	if _, ok := h.subbedToTimestream[c]; ok {
+		delete(h.subbedToTimestream, c)
+		h.logger.Info(
+			"client unsubscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	}
+}
+
 func (h *hub) handleSub(req subRequest) {
 	c := req.Sender
 
 	for _, symbol := range req.symbols {
+		if symbol == TIMESTREAM {
+			h.subToTimestream(c)
+			continue
+		}
 
 		if _, ok := h.symbolThreads[symbol]; !ok {
-			h.logger.Info("first subscriber for %s. Starting ticker thread.", symbol)
+			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
 			if h.DataCoordinator.IsReady(symbol, DEFAULT_DAY) {
 
 				// If ready, notify main loop
-				h.notificationChan <- hydrationSuccess{
+				h.dataInfoInbox <- hydrationSuccess{
 					Symbol: symbol,
 					Date:   DEFAULT_DAY,
 				}
@@ -224,14 +381,24 @@ func (h *hub) handleSub(req subRequest) {
 		}
 
 		if _, ok := h.symbolToClient[symbol][c]; ok {
-			h.logger.Info("client already subscribed to %s. Ignoring subscription request.", symbol)
+			h.logger.Info(
+				"client already subscribed",
+				"client-id", c.ID,
+				"symbol", symbol,
+				"num-subscribed", len(h.symbolToClient[symbol]),
+			)
 			continue
 		}
 
 		h.symbolToClient[symbol][c] = struct{}{}
 		h.clientToSubbedSymbols[c][symbol] = struct{}{}
 
-		h.logger.Info("client subscribed to %s, total %d", symbol, len(h.symbolToClient[symbol]))
+		h.logger.Info(
+			"client subscribed",
+			"client-id", c.ID,
+			"symbol", symbol,
+			"num-subscribed", len(h.symbolToClient[symbol]),
+		)
 	}
 }
 
@@ -239,16 +406,25 @@ func (h *hub) handleUnsub(req unsubRequest) {
 	symbols := req.symbols
 	c := req.Sender
 	for _, symbol := range symbols {
+		if symbol == TIMESTREAM {
+			h.unsubToTimestream(c)
+			continue
+		}
 		if clients, ok := h.symbolToClient[symbol]; ok {
 			delete(clients, c)
 
+			h.logger.Info(
+				"client unsubscribed from symbol",
+				"client-id", c.ID,
+				"symbol", symbol,
+				"num-subscribed", len(h.symbolToClient[symbol]),
+			)
+
 			if len(clients) == 0 {
-				h.logger.Info("last subscriber left for %s. Killing symbol thread.", symbol)
+				h.logger.Info("last subscriber unsubbed, killing symbol thread", "symbol", symbol)
 				h.killSymbolThread(symbol)
 				delete(h.symbolToClient, symbol)
 			}
-
-			h.logger.Info("a client unsubscribed from %s, total %d", symbol, len(h.symbolToClient[symbol]))
 		}
 	}
 }
@@ -257,7 +433,9 @@ func (h *hub) handleRegister(req registerRequest) {
 	c := req.Sender
 	h.clients[c] = struct{}{}
 	c.hubRequestOutbox = h.clientRequestInbox
-	h.logger.Info("a client has been registered, total: %d", len(h.clients))
+	h.logger.Info("client registered to hub", "client-id", c.ID, "client-count", len(h.clients))
+	h.logger.LogStartChild(c.ID)
+	c.Start()
 }
 
 func (h *hub) handleUnregister(req unregisterRequest) {
@@ -272,14 +450,14 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 	}
 
 	delete(h.clients, c)
+	h.logger.Info("client unregistered from hub", "client-id", c.ID, "client-count", len(h.clients))
 
-	h.logger.Info("a client has been unregistered, total: %d", len(h.clients))
 }
 
 func (h *hub) killSymbolThread(symbol common.Symbol) {
 	thread := h.symbolThreads[symbol]
-	h.logger.LogShutdownChild(fmt.Sprintf("SymbolThread-%s", symbol))
-	thread.AsynShutdown()
+	h.logger.LogStopChild(thread.ID)
+	thread.AsyncShutdown()
 	delete(h.symbolThreads, symbol)
 }
 
@@ -288,7 +466,7 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 
 	// 1. Init symbol thread
 	thread := NewSymbolThread(h, symbol, date, h.Database)
-	thread.outbox = h.broadcast
+	thread.outbox = h.broadcastInbox
 
 	// 2. Register it with the clock s.t. it recieves ticks
 	h.Clock.RegisterPipe(thread.GetTickPipe())

@@ -32,7 +32,7 @@ var migrationsFiles embed.FS
 func (db *database) RequireApplyMigrations() {
 	err := db.applyMigrations()
 	if err != nil {
-		log.Fatalf("Failed to apply migrations: %v", err)
+		log.Fatalf("Failed to apply migrations: %w", err)
 	}
 }
 
@@ -42,25 +42,25 @@ func (db *database) applyMigrations() error {
 
 	conn, err := db.getConn(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get connection: %#v ", err)
+		return fmt.Errorf("failed to get connection: %w ", err)
 	}
 
 	// 1. Create migrations table if it doesn't exist
 	err = createMigrationsTable(ctx, conn)
 	if err != nil {
-		return fmt.Errorf("failed to setup db: %#v ", err)
+		return fmt.Errorf("failed to setup db: %w ", err)
 	}
 
 	// 2. Get list of migrations
 	migrations, err := migrationsFiles.ReadDir("migrations")
 	if err != nil {
-		return fmt.Errorf("failed to read embedded migrations dir: %#v ", err)
+		return fmt.Errorf("failed to read embedded migrations dir: %w ", err)
 	}
 
 	// 3. Apply migrations
 	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin tx: %#v ", err)
+		return fmt.Errorf("failed to begin tx: %w ", err)
 	}
 	// Rollback is safe to call even if the tx is already closed, so if
 	// the tx commits succesfully, this is a no-op
@@ -105,7 +105,7 @@ func (db *database) applyMigrations() error {
 
 	err = tx.Commit(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to commit tx: %#v ", err)
+		return fmt.Errorf("failed to commit tx: %w ", err)
 	}
 
 	return nil
