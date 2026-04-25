@@ -39,11 +39,17 @@ type clock struct {
 
 	subscribersMu sync.Mutex
 	subscribers   map[chan<- int64]struct{}
+
+	timestreamOutbox chan<- Tick
 }
 
 type clockSettings struct {
 	startTime int64 // Unix Milli
 	timescale float32
+}
+
+type Tick struct {
+	Timestamp string
 }
 
 func NewClock(day civil.Date, speedup float32) *clock {
@@ -55,13 +61,14 @@ func NewClock(day civil.Date, speedup float32) *clock {
 	}
 
 	return &clock{
-		Ctx:           ctx,
-		CancelCtx:     cancel,
-		wg:            sync.WaitGroup{},
-		logger:        NewComponentLogger(clockID),
-		clockSettings: settings,
-		isPaused:      false, // Init as un-paused for now
-		subscribers:   make(map[chan<- int64]struct{}),
+		Ctx:              ctx,
+		CancelCtx:        cancel,
+		wg:               sync.WaitGroup{},
+		logger:           NewComponentLogger(clockID),
+		clockSettings:    settings,
+		isPaused:         false, // Init as un-paused for now
+		subscribers:      make(map[chan<- int64]struct{}),
+		timestreamOutbox: nil, // Initialised post-hox, by parent
 	}
 }
 
@@ -71,6 +78,10 @@ func (c *clock) SetTicker() {
 }
 
 func (c *clock) Start() {
+	if c.timestreamOutbox == nil {
+		c.logger.Fatal("c.timeStreamOutbox was nil")
+	}
+
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -85,6 +96,12 @@ func (c *clock) Start() {
 			case <-c.Ctx.Done():
 				return
 			case <-c.t.C:
+				ts := common.UnixMilliToTimestampNYC(c.globalTime)
+				select { // Non-blocking send
+				case c.timestreamOutbox <- Tick{ts}:
+				default:
+				}
+
 				c.isPausedMu.Lock()
 				if c.isPaused {
 					c.isPausedMu.Unlock()
@@ -92,9 +109,6 @@ func (c *clock) Start() {
 				}
 				c.globalTime += 1000
 				c.isPausedMu.Unlock()
-
-				// TODO: Remove
-				c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
 
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {

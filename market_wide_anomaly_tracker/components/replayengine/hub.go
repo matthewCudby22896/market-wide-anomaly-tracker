@@ -95,6 +95,9 @@ type hub struct {
 	symbolThreads         map[common.Symbol]*symbolThread
 	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
 
+	subbedToTimestream map[*client]struct{}
+	timeStreamInbox    <-chan Tick
+
 	DataCoordinator
 	Clock
 	Database db.Database
@@ -117,23 +120,34 @@ func NewHub(database db.Database) *hub {
 
 	settings := defaultSimulationSettings()
 
+	timeStreamChan := make(chan Tick, 1)
+
+	// Init clock
+	clock := NewClock(settings.Date, settings.Timescale)
+	clock.timestreamOutbox = timeStreamChan
+
 	h := &hub{
-		ID:                    hubID,
-		Ctx:                   ctx,
-		CancelCtx:             cancel,
-		wg:                    sync.WaitGroup{},
-		logger:                NewComponentLogger(hubID),
-		settings:              settings,
-		clientRequestInbox:    make(chan ClientRequest, 1024),
-		broadcastInbox:        make(chan BroadcastMessage, 1024),
-		dataInfoInbox:         make(chan any, 1024),
+		ID:                 hubID,
+		Ctx:                ctx,
+		CancelCtx:          cancel,
+		wg:                 sync.WaitGroup{},
+		logger:             NewComponentLogger(hubID),
+		settings:           settings,
+		clientRequestInbox: make(chan ClientRequest, 1024),
+		broadcastInbox:     make(chan BroadcastMessage, 1024),
+		dataInfoInbox:      make(chan any, 1024),
+
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
 		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
 		symbolThreads:         make(map[common.Symbol]*symbolThread),
-		DataCoordinator:       NewDataCoordinator(database),
-		Clock:                 NewClock(DEFAULT_DAY, DEFAULT_TIMESCALE),
-		Database:              database,
+
+		subbedToTimestream: make(map[*client]struct{}),
+		timeStreamInbox:    timeStreamChan,
+
+		DataCoordinator: NewDataCoordinator(database),
+		Clock:           clock,
+		Database:        database,
 	}
 
 	h.DataCoordinator.SetOutbox(h.dataInfoInbox)
@@ -149,7 +163,7 @@ func (h *hub) Shutdown() {
 	// - symbol threads
 	// - data controller
 
-	for client, _ := range h.clients {
+	for client := range h.clients {
 		h.logger.LogStopChild(client.ID)
 		client.Shutdown()
 	}
@@ -217,6 +231,10 @@ func (h *hub) Start() {
 				default:
 					h.logger.Fatal("unrecognised notification received", "notification", v)
 				}
+			case tick := <-h.timeStreamInbox:
+				for c := range h.subbedToTimestream {
+					c.outbox <- tick
+				}
 			}
 		}
 	}()
@@ -276,7 +294,7 @@ func (h *hub) SetSimulationSettings(settings *simulationSettings) {
 	h.Clock.ResetState()
 
 	h.restartSymbolThreads()
-	
+
 	if wasPaused && !h.Clock.IsPaused() {
 		h.Clock.Pause()
 	} else if !wasPaused && h.Clock.IsPaused() {
@@ -297,10 +315,47 @@ func (h *hub) restartSymbolThreads() {
 	wg.Wait()
 }
 
+const TIMESTREAM = "TIMESTREAM"
+
+func (h *hub) subToTimestream(c *client) {
+	if _, ok := h.subbedToTimestream[c]; ok {
+		h.logger.Info(
+			"client already subscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	} else {
+		h.subbedToTimestream[c] = struct{}{}
+		h.logger.Info(
+			"client subscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	}
+}
+
+func (h *hub) unsubToTimestream(c *client) {
+	if _, ok := h.subbedToTimestream[c]; ok {
+		delete(h.subbedToTimestream, c)
+		h.logger.Info(
+			"client unsubscribed",
+			"client-id", c.ID,
+			"symbol", TIMESTREAM,
+			"num-subscribed", len(h.subbedToTimestream),
+		)
+	}
+}
+
 func (h *hub) handleSub(req subRequest) {
 	c := req.Sender
 
 	for _, symbol := range req.symbols {
+		if symbol == TIMESTREAM {
+			h.subToTimestream(c)
+			continue
+		}
 
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
@@ -351,6 +406,10 @@ func (h *hub) handleUnsub(req unsubRequest) {
 	symbols := req.symbols
 	c := req.Sender
 	for _, symbol := range symbols {
+		if symbol == TIMESTREAM {
+			h.unsubToTimestream(c)
+			continue
+		}
 		if clients, ok := h.symbolToClient[symbol]; ok {
 			delete(clients, c)
 
