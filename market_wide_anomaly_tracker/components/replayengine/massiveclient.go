@@ -20,17 +20,20 @@ import (
 	- Must stay under 100 requests per second
 */
 
+const massiveClientID = "massive-client"
+
 type MassiveClient interface {
 	LifeCycle
 	FetchDayData(day civil.Date, ticker common.Symbol)
 }
 
 type massiveClient struct {
+	ID               string
 	Ctx              context.Context
 	CancelCtx        context.CancelFunc
 	wg               sync.WaitGroup
 	RequestTokenChan chan struct{}
-	logger           ComponentLogger
+	logger           *Logger
 	client           *rest.Client
 }
 
@@ -46,11 +49,12 @@ func NewMassiveClient() *massiveClient {
 	)
 
 	return &massiveClient{
+		ID:               massiveClientID,
 		Ctx:              ctx,
 		CancelCtx:        cancel,
 		wg:               sync.WaitGroup{},
 		RequestTokenChan: make(chan struct{}, 5),
-		logger:           NewLogger("MassiveClient"),
+		logger:           NewComponentLogger(massiveClientID),
 		client:           client,
 	}
 }
@@ -74,7 +78,7 @@ func (c *massiveClient) Start() {
 			}
 		}
 	}()
-	c.logger.Info("started.")
+	c.logger.LogStart()
 }
 
 func (c *massiveClient) Shutdown() {

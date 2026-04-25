@@ -9,6 +9,8 @@ import (
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
 )
 
+const clockID = "clock"
+
 type Clock interface {
 	LifeCycle
 	RegisterPipe(chan<- int64)
@@ -25,7 +27,7 @@ type clock struct {
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	logger    ComponentLogger
+	logger    *Logger
 	clockSettings
 
 	isPausedMu sync.Mutex
@@ -54,7 +56,7 @@ func NewClock(day civil.Date, speedup float32) *clock {
 		Ctx:           ctx,
 		CancelCtx:     cancel,
 		wg:            sync.WaitGroup{},
-		logger:        NewLogger("Clock"),
+		logger:        NewComponentLogger(clockID),
 		clockSettings: settings,
 		isPaused:      false, // Init as un-paused for now
 		subscribers:   make(map[chan<- int64]struct{}),
@@ -86,7 +88,7 @@ func (c *clock) Start() {
 				c.isPausedMu.Unlock()
 
 				// TODO: Remove
-				c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
+				// c.logger.Info(common.UnixMilliToTimestampNYC(c.globalTime))
 
 				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
@@ -101,7 +103,7 @@ func (c *clock) Start() {
 			}
 		}
 	}()
-	c.logger.Info("started.")
+	c.logger.LogStart()
 }
 
 func (c *clock) ResetState() {

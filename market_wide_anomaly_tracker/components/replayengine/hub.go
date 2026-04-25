@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"sync"
 
@@ -22,11 +21,7 @@ const (
 	UNSUB
 )
 
-type hubRequest struct {
-	Type    HubReqType
-	Client  *client
-	Symbols []common.Symbol
-}
+const hubID = "hub"
 
 type ClientRequest interface {
 	GetSender() *client
@@ -61,6 +56,7 @@ type unsubRequest struct {
 type Hub interface {
 	LifeCycle
 
+	GetID() string
 	RegisterClient(c *client)
 	PauseSimulation()
 	ResumeSimulation()
@@ -82,10 +78,11 @@ Setting Settings:
 
 // hub implements the Hub interface
 type hub struct {
+	ID        string
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	logger    ComponentLogger
+	logger    *Logger
 	settings  simulationSettings
 
 	clientRequestInbox chan ClientRequest
@@ -120,10 +117,11 @@ func NewHub(database db.Database) *hub {
 	settings := defaultSimulationSettings()
 
 	h := &hub{
+		ID:                    hubID,
 		Ctx:                   ctx,
 		CancelCtx:             cancel,
 		wg:                    sync.WaitGroup{},
-		logger:                NewLogger("Hub"),
+		logger:                NewComponentLogger(hubID),
 		settings:              settings,
 		clientRequestInbox:    make(chan ClientRequest, 1024),
 		broadcastInbox:        make(chan BroadcastMessage, 1024),
@@ -142,24 +140,35 @@ func NewHub(database db.Database) *hub {
 	return h
 }
 
-func (h *hub) Shutdown() {
-	// First shutdown all child components (client, ticker threads, data controller)
-	h.logger.LogShutdownChild("DataCoordinator")
-	h.DataCoordinator.Shutdown()
+func (h *hub) GetID() string { return h.ID }
 
-	for ticker, tickerThread := range h.symbolThreads {
-		h.logger.LogShutdownChild(fmt.Sprintf("TickerThread-%s", ticker))
-		tickerThread.Shutdown()
+func (h *hub) Shutdown() {
+	// Shutdown all child components:
+	// - clients
+	// - symbol threads
+	// - data controller
+
+	for client, _ := range h.clients {
+		h.logger.LogStopChild(client.ID)
+		client.Shutdown()
 	}
 
-	// Then shutdown itself
+	h.logger.LogStopChild(h.DataCoordinator.GetID())
+	h.DataCoordinator.Shutdown()
+
+	for _, symbolThread := range h.symbolThreads {
+		h.logger.LogStopChild(symbolThread.ID)
+		symbolThread.Shutdown()
+	}
+
+	// Shutdown self
 	h.CancelCtx()
 	h.wg.Wait()
 	h.logger.LogShutdown()
 }
 
 func (h *hub) Start() {
-	h.logger.LogStartChild("DataCoordinator")
+	h.logger.LogStartChild(h.DataCoordinator.GetID())
 	h.DataCoordinator.Start()
 	h.Clock.Start()
 
@@ -189,14 +198,14 @@ func (h *hub) Start() {
 			case notification := <-h.dataInfoInbox:
 				switch v := notification.(type) {
 				case hydrationSuccess:
-					h.logger.Info("hydrationSuccess notification recieved: %#v\n", v)
+					h.logger.Info("hydration notification received", "notification", v)
 					h.StartTickerThread(v.Symbol, v.Date)
 
 				case hydrationFailure:
-					h.logger.Info("hydrationFailure notification recieved: %#v\n", v)
+					h.logger.Info("hydration failure notification received", "notification", v)
 
 					clients := h.symbolToClient[v.Symbol]
-					for c, _ := range clients {
+					for c := range clients {
 						c.Outbox() <- struct{ msg string }{
 							msg: fmt.Sprintf("hydration failed for symbol '%s'", v.Symbol),
 						}
@@ -205,8 +214,7 @@ func (h *hub) Start() {
 					delete(h.symbolToClient, v.Symbol)
 
 				default:
-					h.logger.Errorf("unrecognised notification recieved: %#v\n", v)
-					os.Exit(1)
+					h.logger.Fatal("unrecognised notification received", "notification", v)
 				}
 			}
 		}
@@ -215,7 +223,6 @@ func (h *hub) Start() {
 }
 
 func (h *hub) handleBroadcast(msg BroadcastMessage) {
-	// Fan-out msg to subscribed clients
 	for client := range h.symbolToClient[msg.Symbol] {
 		client.Outbox() <- msg.Data
 	}
@@ -255,7 +262,7 @@ func (h *hub) GetSimulationSettings() simulationSettings {
 	return h.settings
 }
 
-func (h *hub) SetSimulationSettings(settings simulationSettings) {
+func (h *hub) SetSimulationSettings(settings *simulationSettings) {
 	wasPaused := h.Clock.IsPaused()
 	h.Clock.Pause()
 	h.Clock.UpdateClockSettings(settings.Timescale, settings.Date)
@@ -276,6 +283,7 @@ func (h *hub) restartSymbolThreads() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			h.logger.Info("restarting symbol thread", "symbol-thread-id", symbolThread.ID)
 			symbolThread.Restart()
 		}()
 	}
@@ -288,7 +296,7 @@ func (h *hub) handleSub(req subRequest) {
 	for _, symbol := range req.symbols {
 
 		if _, ok := h.symbolThreads[symbol]; !ok {
-			h.logger.Info("first subscriber for %s. Starting ticker thread.", symbol)
+			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
 			if h.DataCoordinator.IsReady(symbol, DEFAULT_DAY) {
 
@@ -311,14 +319,24 @@ func (h *hub) handleSub(req subRequest) {
 		}
 
 		if _, ok := h.symbolToClient[symbol][c]; ok {
-			h.logger.Info("client already subscribed to %s. Ignoring subscription request.", symbol)
+			h.logger.Info(
+				"client already subscribed",
+				"client-id", c.ID,
+				"symbol", symbol, 
+				"num-subscribed", len(h.symbolToClient[symbol]),
+			)
 			continue
 		}
 
 		h.symbolToClient[symbol][c] = struct{}{}
 		h.clientToSubbedSymbols[c][symbol] = struct{}{}
 
-		h.logger.Info("client subscribed to %s, total %d", symbol, len(h.symbolToClient[symbol]))
+		h.logger.Info(
+			"client subscribed",
+			"client-id", c.ID,
+			"symbol", symbol, 
+			"num-subscribed", len(h.symbolToClient[symbol]),
+		)
 	}
 }
 
@@ -329,13 +347,18 @@ func (h *hub) handleUnsub(req unsubRequest) {
 		if clients, ok := h.symbolToClient[symbol]; ok {
 			delete(clients, c)
 
+			h.logger.Info(
+				"client unsubscribed from symbol",
+				"client-id", c.ID,
+				"symbol", symbol,
+				"num-subscribed", len(h.symbolToClient[symbol]),
+			)
+
 			if len(clients) == 0 {
-				h.logger.Info("last subscriber left for %s. Killing symbol thread.", symbol)
+				h.logger.Info("last subscriber unsubbed, killing symbol thread", "symbol", symbol)
 				h.killSymbolThread(symbol)
 				delete(h.symbolToClient, symbol)
 			}
-
-			h.logger.Info("a client unsubscribed from %s, total %d", symbol, len(h.symbolToClient[symbol]))
 		}
 	}
 }
@@ -344,7 +367,9 @@ func (h *hub) handleRegister(req registerRequest) {
 	c := req.Sender
 	h.clients[c] = struct{}{}
 	c.hubRequestOutbox = h.clientRequestInbox
-	h.logger.Info("a client has been registered, total: %d", len(h.clients))
+	h.logger.Info("a client has been registered", "client-id", c.ID, "client-count", len(h.clients))
+	h.logger.LogStartChild(c.ID)
+	c.Start()
 }
 
 func (h *hub) handleUnregister(req unregisterRequest) {
@@ -360,13 +385,13 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 
 	delete(h.clients, c)
 
-	h.logger.Info("a client has been unregistered, total: %d", len(h.clients))
+	h.logger.Info("a client has been unregistered")
 }
 
 func (h *hub) killSymbolThread(symbol common.Symbol) {
 	thread := h.symbolThreads[symbol]
-	h.logger.LogShutdownChild(fmt.Sprintf("SymbolThread-%s", symbol))
-	thread.AsynShutdown()
+	h.logger.LogStopChild(thread.ID)
+	thread.AsyncShutdown()
 	delete(h.symbolThreads, symbol)
 }
 

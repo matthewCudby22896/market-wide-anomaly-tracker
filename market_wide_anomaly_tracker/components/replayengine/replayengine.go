@@ -15,10 +15,13 @@ type ReplayEnginerServer interface {
 	LifeCycle
 }
 
+const replayEngineServerID = "replay-engine-server"
+
 type replayEngineServer struct {
+	id     string
 	Server *http.Server
 	wg     sync.WaitGroup
-	logger ComponentLogger
+	logger Logger
 
 	Hub Hub
 }
@@ -39,9 +42,10 @@ func NewReplayEngineServer() *replayEngineServer {
 	}
 
 	srv := &replayEngineServer{
+		id:     replayEngineServerID,
 		Server: server,
 		wg:     sync.WaitGroup{},
-		logger: NewLogger("ReplayEnginerServer"),
+		logger: *NewComponentLogger("replay-engine-server"),
 		Hub:    NewHub(database),
 	}
 
@@ -62,17 +66,17 @@ func (s *replayEngineServer) Start() {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		// Start child components
-		s.logger.LogStartChild("Hub")
+		s.logger.LogStartChild(s.Hub.GetID())
 		s.Hub.Start()
 
 		// Start listening
-		s.logger.Info("listening on %s", s.Server.Addr)
+		msg := fmt.Sprintf("listening on %s", s.Server.Addr)
+		s.logger.Info(msg)
 		err := s.Server.ListenAndServe()
 		if err != nil {
-			s.logger.Info("ListenAndServe err: %v", err)
+			s.logger.Error("ListenAndServe() errored", "error", err)
 			return
-		}
+		} // Start child components
 	}()
 }
 
@@ -91,7 +95,8 @@ func (s *replayEngineServer) Shutdown() {
 		}
 	}()
 
-	s.logger.LogShutdownChild("Hub")
+	// 2. Wait for the Hub to Stop
+	s.logger.LogStopChild(s.Hub.GetID())
 	s.Hub.Shutdown()
 
 	s.wg.Wait()
@@ -99,12 +104,11 @@ func (s *replayEngineServer) Shutdown() {
 
 }
 
-// Will launch in new go thread
 func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 	// 1. Accept and upgrade the connection
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		s.logger.Fatalf("failed to upgrade connection: %w", err)
+		s.logger.Fatal("failed to upgrade connection", "error", err)
 		return
 	}
 
@@ -114,6 +118,5 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 	// 3. Register it with the Hub, the Hub will handle its lifecycle
 	s.Hub.RegisterClient(client)
 
-	// 4. Start the client up (i.e. listener / sender)
-	client.Start()
+	// Note: The hub handles the Start() of the client once it has succesfully registered
 }

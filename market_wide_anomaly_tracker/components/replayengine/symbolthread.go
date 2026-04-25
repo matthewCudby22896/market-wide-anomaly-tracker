@@ -3,7 +3,6 @@ package replayengine
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"cloud.google.com/go/civil"
@@ -13,19 +12,20 @@ import (
 
 type SymbolThread interface {
 	LifeCycle
-	AsynShutdown()
+	AsyncShutdown()
 	GetTickPipe() chan<- int64
 	SetOutbox(outbox chan<- BroadcastMessage)
 	Restart()
 }
 
 type symbolThread struct {
+	ID        string
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 	symbol    common.Symbol
 	Date      civil.Date
-	logger    ComponentLogger
+	logger    *Logger
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
 	db        db.Database
@@ -34,23 +34,23 @@ type symbolThread struct {
 func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db db.Database) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	id := fmt.Sprintf("%s-%s", symbol, date.String())
+
 	return &symbolThread{
+		ID:        id,
 		Ctx:       ctx,
 		CancelCtx: cancel,
 		wg:        sync.WaitGroup{},
-		logger:    NewLogger(fmt.Sprintf("%s symbolThread", symbol)),
+		logger:    NewComponentLogger(id),
 		symbol:    symbol,
 		Date:      date,
 		ticks:     make(chan int64),
 		db:        db,
-		outbox:    nil, // Initialised by parent
+		outbox:    nil, // Initialised post-hoc, by parent
 	}
 }
 
-// TODO: Do I need both
 func (t *symbolThread) Shutdown() {
-	// Shutdown child components
-
 	// Shutdown self
 	t.CancelCtx()
 
@@ -58,14 +58,13 @@ func (t *symbolThread) Shutdown() {
 	t.logger.LogShutdown()
 }
 
-func (t *symbolThread) AsynShutdown() {
+func (t *symbolThread) AsyncShutdown() {
 	go t.Shutdown()
 }
 
 func (t *symbolThread) Start() {
 	if t.outbox == nil {
-		t.logger.Errorf("fatal : t.outbox was nil")
-		os.Exit(1)
+		t.logger.Fatal("failed to start symbol thread: t.outbox was nil")
 	}
 
 	t.wg.Add(1)
@@ -75,7 +74,7 @@ func (t *symbolThread) Start() {
 		// Currently returns in DESC order
 		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.symbol, t.Date)
 		if err != nil {
-			t.logger.Errorf("symbol failed to fetch data for symbol '%s': %s", t.symbol, err)
+			t.logger.Error("failed to fetch data for symbol", "symbol", t.symbol, "error", err)
 			t.Shutdown()
 			return
 		}

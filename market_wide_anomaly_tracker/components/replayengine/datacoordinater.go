@@ -11,6 +11,8 @@ import (
 	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
 )
 
+const dataCoordinatorID = "data-coordinator"
+
 type DataAvailability int
 
 const (
@@ -22,6 +24,7 @@ const (
 
 type DataCoordinator interface {
 	LifeCycle
+	GetID() string
 	IsReady(t common.Symbol, d civil.Date) bool
 	SetOutbox(chan any)
 	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
@@ -29,10 +32,11 @@ type DataCoordinator interface {
 
 // dataCoordinator implements the DataCoordinater interface
 type dataCoordinator struct {
+	ID        string
 	Ctx       context.Context
 	CancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	logger    ComponentLogger
+	logger    *Logger
 
 	database      db.Database
 	massiveClient *massiveClient
@@ -66,10 +70,11 @@ type hydrationFailure struct {
 func NewDataCoordinator(database db.Database) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &dataCoordinator{
+		ID:            dataCoordinatorID,
 		Ctx:           ctx,
 		CancelCtx:     cancel,
 		wg:            sync.WaitGroup{},
-		logger:        NewLogger("DataCoordinator"),
+		logger:        NewComponentLogger("DataCoordinator"),
 		database:      database,
 		massiveClient: NewMassiveClient(),
 		statusMapMu:   sync.Mutex{},
@@ -79,10 +84,12 @@ func NewDataCoordinator(database db.Database) *dataCoordinator {
 	}
 }
 
+func (c *dataCoordinator) GetID() string { return c.ID }
+
 func (c *dataCoordinator) Start() {
 	c.InitStatusMap()
 
-	c.logger.LogStartChild("MassiveClient")
+	c.logger.LogStartChild(c.massiveClient.ID)
 	c.massiveClient.Start()
 
 	c.wg.Add(1)
@@ -108,13 +115,13 @@ func (c *dataCoordinator) Start() {
 			}
 		}
 	}()
-	c.logger.Info("started.")
+	c.logger.LogStart()
 }
 
 func (c *dataCoordinator) InitStatusMap() {
 	state, err := c.database.LoadHydrationState(c.Ctx)
 	if err != nil {
-		c.logger.Errorf("failed to load hydration state")
+		c.logger.Error("failed to load hydration state", "error", err)
 	}
 	for _, x := range state {
 		c.setState(x.Symbol, x.Date, READY)
@@ -122,7 +129,7 @@ func (c *dataCoordinator) InitStatusMap() {
 }
 
 func (c *dataCoordinator) Shutdown() {
-	c.logger.LogShutdownChild("MassiveClient")
+	c.logger.LogStopChild(c.massiveClient.ID)
 	c.massiveClient.Shutdown()
 
 	c.CancelCtx()
@@ -189,7 +196,12 @@ func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 	bars, err := c.massiveClient.FetchDayData(c.Ctx, date, symbol)
 
 	if err != nil {
-		c.logger.Info("hydration task failed for %s: %v", symbol, err)
+		c.logger.Info(
+			"hydration task failed",
+			"symbol", symbol,
+			"date", date.String(),
+			"error", err,
+		)
 
 		c.setState(symbol, date.String(), FAILED)
 
@@ -199,10 +211,15 @@ func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 
 	err = c.database.BatchStoreBars(ctx, bars, symbol, date)
 	if err != nil {
-		c.logger.Fatalf("failed to store fetch ohlc data for ticker: `%s`: %v", symbol, err)
+		c.logger.Fatal(
+			"failed to store fetched ohlc bars",
+			"symbol", symbol,
+			"date", date.String(),
+			"error", err,
+		)
 	}
 
-	c.logger.Info("%d ohlc bars succesfully fetched", len(bars))
+	c.logger.Info("ohlc bars succesfully fetched", "num-bars", len(bars))
 
 	// Update status
 	c.setState(symbol, date.String(), READY)
