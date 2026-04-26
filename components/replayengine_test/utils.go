@@ -28,11 +28,6 @@ func (c *testClient) Send(msg any) error {
 	return wsjson.Write(c.ctx, c.conn, msg)
 }
 
-func (c *testClient) BlockingReceive() (any, error) {
-	var v any
-	err := wsjson.Read(c.ctx, c.conn, &v)
-	if err != nil {
-		return nil, err
-	}
-	return v, nil
+func (c *testClient) BlockingReceive(dst any) error {
+	return wsjson.Read(c.ctx, c.conn, &dst)
 }

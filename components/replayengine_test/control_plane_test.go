@@ -205,7 +205,6 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 		default:
 			time.Sleep(250 * time.Millisecond)
 		}
-
 	}
 
 	return cancel
@@ -228,19 +227,28 @@ func (s *controlPlaneTestSuite) requireClearDatabase() {
 
 func (s *controlPlaneTestSuite) TestStartAndStop() {
 	cancel := s.requireStartReplayEngine()
-	cancel()
-
-	s.requireClearDatabase()
-
-	cancel = s.requireStartReplayEngine()
-	cancel()
+	defer cancel()
 
 	s.requireClearDatabase()
 }
 
+func (s *controlPlaneTestSuite) requireReceiveTick(c *testClient) time.Time {
+	tick := struct {
+		Tick string `json:"tick"`
+	}{}
+	err := c.BlockingReceive(&tick)
+	s.Require().NoError(err)
+
+	t, err := time.Parse(time.RFC3339, tick.Tick)
+	s.Require().NoError(err)
+
+	return t
+}
+
 func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	// GIVEN the replay engine is running
-	s.requireStartReplayEngine()
+	cancel := s.requireStartReplayEngine()
+	defer cancel()
 
 	// AND we have a connected client
 	client, err := newTestClient(s.T().Context(), replayEngineWSURL)
@@ -257,12 +265,21 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	client.Send(subTimestream)
 
 	// THEN the client receives ticks
-	for i := 0; i < 10; i++ {
-		msg, err := client.BlockingReceive()
-		s.Require().NoError(err)
-
-		s.T().Logf("%#v", msg)
+	firstTick := s.requireReceiveTick(client)
+	s.T().Log(firstTick)
+	for i := 0; i < 8; i++ {
+		tick := s.requireReceiveTick(client)
+		s.T().Log(tick)
 	}
+	lastTick := s.requireReceiveTick(client)
+	s.T().Log(lastTick)
+
+	diff := lastTick.Sub(firstTick)
+	_ = diff
+
+	s.T().Log(diff)
+
+	s.Require().Equal(9*time.Second, diff)
 }
 
 func (s *controlPlaneTestSuite) TestPause() {

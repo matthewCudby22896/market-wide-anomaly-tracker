@@ -38,13 +38,17 @@ func NYSECloseUnixMilli(day civil.Date) int64 {
 }
 
 func UnixMilliToTimestampNYC(unixMilli int64) string {
-	// UnixMilli returns the local Time corresponding to the given Unix time,
-	// msec milliseconds since January 1, 1970 UTC.
 	t := time.UnixMilli(unixMilli)
-	loc, _ := time.LoadLocation("America/New_York")
-	nyTime := t.In(loc)
-	timestampStr := nyTime.Format("2006-01-02 03:04:05 PM MST")
-	return timestampStr
+	
+	// Load New York location
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		// Fallback to UTC if the timezone DB isn't available
+		return t.Format(time.RFC3339)
+	}
+	
+	// Convert to NYC and format using the RFC3339 constant
+	return t.In(loc).Format(time.RFC3339)
 }
 
 func IsWeekday(date civil.Date) bool {

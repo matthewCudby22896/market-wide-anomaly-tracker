@@ -49,7 +49,7 @@ type clockSettings struct {
 }
 
 type Tick struct {
-	Timestamp string
+	Tick string `json:"tick"`
 }
 
 func NewClock(day civil.Date, speedup float32) *clock {
