@@ -110,7 +110,7 @@ type simulationSettings struct {
 
 func defaultSimulationSettings() simulationSettings {
 	return simulationSettings{
-		Timescale: 1.0,
+		Timescale: DEFAULT_TIMESCALE,
 		Date:      DEFAULT_DAY,
 	}
 }

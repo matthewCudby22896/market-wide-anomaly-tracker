@@ -225,7 +225,7 @@ func (s *controlPlaneTestSuite) requireClearDatabase() {
 	}
 }
 
-func (s *controlPlaneTestSuite) TestStartAndStop() {
+func (s *controlPlaneTestSuite) TestStartReplayEngine() {
 	cancel := s.requireStartReplayEngine()
 	defer cancel()
 
@@ -254,17 +254,10 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	client, err := newTestClient(s.T().Context(), replayEngineWSURL)
 	s.Require().NoError(err)
 
-	subTimestream := struct {
-		Action  string   `json:"action"`
-		Symbols []string `json:"symbols"`
-	}{
-		Action:  "subscribe",
-		Symbols: []string{"TIMESTREAM"},
-	}
-	// AND they send a timestream subscription request
-	client.Send(subTimestream)
+	// AND the client is subbed to the timestream
+	client.SubToTimestream()
 
-	// THEN the client receives ticks
+	// AND the client waits to read 10 ticks
 	firstTick := s.requireReceiveTick(client)
 	s.T().Log(firstTick)
 	for i := 0; i < 8; i++ {
@@ -274,16 +267,93 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	lastTick := s.requireReceiveTick(client)
 	s.T().Log(lastTick)
 
+	// THEN the difference between the first and the last tick is 9 seconds
 	diff := lastTick.Sub(firstTick)
-	_ = diff
-
-	s.T().Log(diff)
-
 	s.Require().Equal(9*time.Second, diff)
 }
 
-func (s *controlPlaneTestSuite) TestPause() {
+func (s *controlPlaneTestSuite) requirePauseSimulation() {
+	resp, err := http.Post(replayEnginePauseURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+	s.T().Log("replayengine paused.")
+}
 
+func (s *controlPlaneTestSuite) requireResumeSimulation() {
+	resp, err := http.Post(replayEngineResumeURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+
+	s.T().Log("replayengine resumed.")
+}
+
+func (s *controlPlaneTestSuite) TestPauseAndResume() {
+	n := 100
+
+	// GIVEN the replay engine is running
+	cancel := s.requireStartReplayEngine()
+	defer cancel()
+
+	// AND a client is connected & subbed to the timestream
+	client, err := newTestClient(s.T().Context(), replayEngineWSURL)
+	s.Require().NoError(err)
+	client.SubToTimestream()
+
+	// AND a pause command is issued
+	s.requirePauseSimulation()
+
+	paused := false
+	prev := s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if time.Time.Equal(curr, prev) {
+			paused = true
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation pauses within n ticks
+	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
+
+	// GIVEN a resume command is issued
+	s.requireResumeSimulation()
+	prev = s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if curr.Sub(prev) == time.Second {
+			paused = false
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation resumes within n ticks
+	s.Require().Falsef(paused, "simulation failed to resume in %d ticks", n)
+
+	// GIVEN a pause command is issued
+	s.requirePauseSimulation()
+	prev = s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if time.Time.Equal(curr, prev) {
+			paused = true
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation pauses within n ticks
+	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
 }
 
 // Test suite entry point
