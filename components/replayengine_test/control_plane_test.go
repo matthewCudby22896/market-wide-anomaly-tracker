@@ -287,6 +287,14 @@ func (s *controlPlaneTestSuite) requireResumeSimulation() {
 	s.T().Log("replayengine resumed.")
 }
 
+func (s *controlPlaneTestSuite) requireRestartSimulation() {
+	resp, err := http.Post(replayEngineRestartURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+
+	s.T().Log("replayengine resumed.")
+}
+
 func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	n := 100
 
@@ -354,6 +362,40 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 
 	// THEN the simulation pauses within n ticks
 	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
+}
+
+func (s *controlPlaneTestSuite) TestRestart() {
+	// GIVEN the replayengine is running & the simulation is un-paused
+	// and a client is connected
+	s.requireStartReplayEngine()
+	client, err := newTestClient(s.T().Context(), replayEngineWSURL)
+	client.SubToTimestream()
+	s.Require().NoError(err)
+	s.requireResumeSimulation()
+
+	// Let several ticks pass
+	s.requireReceiveTick(client)
+	s.requireReceiveTick(client)
+	s.requireReceiveTick(client)
+
+	// AND the simulation is then paused & restarted
+	s.requirePauseSimulation()
+	s.requireRestartSimulation()
+
+	restarted := false
+	n := 100
+	for i := 0; i < n; i++ {
+		tick := s.requireReceiveTick(client)
+
+		h, m, _ := tick.Clock()
+		if h == 9 && m == 30 {
+			// It is 9:30 AM
+			restarted = true
+			break
+		}
+	}
+	// THEN the simulation eventually restarts
+	s.Require().Truef(restarted, "simulation failed to restart in %d ticks", n)
 }
 
 // Test suite entry point
