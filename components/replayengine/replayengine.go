@@ -62,6 +62,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	mux.HandleFunc("/simulation/restart", srv.handleRestart)
 	mux.HandleFunc("/control/settings", srv.handleSettings)
 	mux.HandleFunc("/control/hydrate", srv.handleHydrate)
+	mux.HandleFunc("/ping", srv.handlePing)
 
 	return srv
 }

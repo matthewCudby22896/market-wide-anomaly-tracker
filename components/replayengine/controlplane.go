@@ -23,6 +23,10 @@ type hydrationRequest struct {
 	Date   string `json:"date"`
 }
 
+func (s *replayEngineServer) handlePing(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *replayEngineServer) handlePause(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "this endpoint only accepts POST requests", http.StatusMethodNotAllowed)

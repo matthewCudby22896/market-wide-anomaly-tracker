@@ -1,3 +1,6 @@
+### Ping
+POST http://localhost:8080/ping
+
 ### Pause
 POST http://localhost:8080/simulation/pause
 
