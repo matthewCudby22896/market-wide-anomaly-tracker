@@ -23,14 +23,17 @@ type replayEngineServer struct {
 	Server *http.Server
 	wg     sync.WaitGroup
 	logger Logger
-
-	Hub Hub
+	Hub    Hub
 }
 
-func NewReplayEngineServer() *replayEngineServer {
+type Opts struct {
+	DatabaseURL string
+}
+
+func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	// Created once at this top level, and then passed down
 	// the component tree
-	database := db.RequireNewDatabase(DB_URL)
+	database := db.RequireNewDatabase(fmtDBUrl(opts.DatabaseURL))
 
 	// Apply migrations
 	database.RequireApplyMigrations()

@@ -1,12 +1,18 @@
 package replayengine
 
 import (
+	"fmt"
+
 	"cloud.google.com/go/civil"
 )
 
 const WS_SOCKET = ":8080"
 
 const DB_URL string = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
+
+func fmtDBUrl(url string) string {
+	return fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", url)
+}
 
 const DEFAULT_TIMESCALE float32 = 1.0
 
