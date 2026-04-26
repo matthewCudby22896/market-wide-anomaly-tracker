@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mcudby/mwat/common"
 	"github.com/stretchr/testify/suite"
@@ -22,9 +20,19 @@ import (
 
 var PROJECT_ROOT = common.GetProjectRoot()
 
-const binaryName = "replayengine_binary"
-
 const (
+	replayEngineWSURL       = "ws://localhost:9120/ws"
+	replayEnginePingURL     = "http://localhost:9120/ping"
+	replayEnginePauseURL    = "http://localhost:9120/simulation/pause"
+	replayEngineResumeURL   = "http://localhost:9120/simulation/resume"
+	replayEngineRestartURL  = "http://localhost:9120/simulation/restart"
+	replayEngineSettingsURL = "http://localhost:9120/control/settings"
+	replayEngineHydrateURL  = "http://localhost:9120/control/hydrate"
+
+	binaryName = "replayengine_binary"
+
+	REPLAY_ENGINE_HTTP_PORT = "9120"
+
 	POSTGRES_DB       = "postgres"
 	POSTGRES_PASSWORD = "password"
 )
@@ -141,7 +149,7 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 
 	ctx, cancel := context.WithCancel(s.T().Context())
 
-	cmd := exec.CommandContext(ctx, s.binaryPath, "-db-url", s.databaseURL)
+	cmd := exec.CommandContext(ctx, s.binaryPath, "-db-url", s.databaseURL, "-port", REPLAY_ENGINE_HTTP_PORT)
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -177,11 +185,9 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 	s.T().Log("waiting for http server")
 
 	ctx, cancel = context.WithTimeout(s.T().Context(), 5*time.Second)
-
 	client := &http.Client{}
-
 	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:8080/ping", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
 		s.Require().NoError(err)
 
 		resp, err := client.Do(req)
@@ -193,12 +199,11 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 			}
 		}
 
-
 		select {
 		case <-ctx.Done():
 			s.T().Fatal("timed out waiting for http server to start")
 		default:
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 
 	}
@@ -233,44 +238,12 @@ func (s *controlPlaneTestSuite) TestStartAndStop() {
 	s.requireClearDatabase()
 }
 
-type testClient struct {
-	ctx  context.Context
-	conn *websocket.Conn
-}
-
-func newTestClient(ctx context.Context) (*testClient, error) {
-	replayengineURL := "ws://localhost:8080/ws"
-
-	conn, _, err := websocket.Dial(ctx, replayengineURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return &testClient{
-		ctx:  ctx,
-		conn: conn,
-	}, nil
-}
-
-func (c *testClient) Send(msg any) error {
-	return wsjson.Write(c.ctx, c.conn, msg)
-}
-
-func (c *testClient) BlockingReceive() (any, error) {
-	var v any
-	err := wsjson.Read(c.ctx, c.conn, &v)
-	if err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-func (s *controlPlaneTestSuite) TestWebsocketClient() {
+func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	// GIVEN the replay engine is running
 	s.requireStartReplayEngine()
 
 	// AND we have a connected client
-	client, err := newTestClient(s.T().Context())
+	client, err := newTestClient(s.T().Context(), replayEngineWSURL)
 	s.Require().NoError(err)
 
 	subTimestream := struct {

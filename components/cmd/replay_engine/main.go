@@ -12,11 +12,13 @@ import (
 
 func main() {
 	databaseURL := flag.String("db-url", "localhost:6543", "url of the timescaledb instance")
+	port := flag.String("port", "8080", "port replay engine listents on")
 
 	flag.Parse()
 
 	opts := replayengine.Opts{
 		DatabaseURL: *databaseURL,
+		Port: *port,
 	}
 
 	c := make(chan os.Signal, 1)

@@ -28,6 +28,7 @@ type replayEngineServer struct {
 
 type Opts struct {
 	DatabaseURL string
+	Port        string
 }
 
 func NewReplayEngineServer(opts Opts) *replayEngineServer {
@@ -41,7 +42,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	mux := http.NewServeMux()
 
 	server := &http.Server{
-		Addr:    WS_SOCKET,
+		Addr:    ":" + opts.Port,
 		Handler: mux,
 	}
 
