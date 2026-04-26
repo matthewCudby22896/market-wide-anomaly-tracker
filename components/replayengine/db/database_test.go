@@ -100,25 +100,25 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
 }
 
-// func (s *dbTestSuite) TestLoadHydrationState() {
-// 	ctx := s.ctxWithTimeout()
-// 	conn, err := s.db.getConn(ctx)
-// 	s.Require().NoError(err)
+func (s *dbTestSuite) TestLoadHydrationState() {
+	ctx := s.ctxWithTimeout()
+	conn, err := s.db.getConn(ctx)
+	s.Require().NoError(err)
 
-// 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
-// 	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
-// 	s.Require().NoError(err)
+	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
+	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
+	s.Require().NoError(err)
 
-// 	res, err := s.db.LoadHydrationState(ctx)
-// 	s.Require().NoError(err)
-// 	s.Assert().Len(res, 1)
-// 	expected := common.HydrationStatusRow{
-// 		Symbol: "AAPL",
-// 		Date:   "2026-03-20",
-// 	}
-// 	s.Assert().Equal(expected, res[0])
-// }
-
-func TestDBTestSuite(t *testing.T) {
-	suite.Run(t, new(dbTestSuite))
+	res, err := s.db.LoadHydrationState(ctx)
+	s.Require().NoError(err)
+	s.Assert().Len(res, 1)
+	expected := common.HydrationStatusRow{
+		Symbol: "AAPL",
+		Date:   "2026-03-20",
+	}
+	s.Assert().Equal(expected, res[0])
 }
+
+// func TestDBTestSuite(t *testing.T) {
+// 	suite.Run(t, new(dbTestSuite))
+// }
