@@ -92,6 +92,7 @@ func (s *DatabaseSuite) RequireInitDatabaseConn() {
 }
 
 func (s *DatabaseSuite) RequireClearDatabase() {
+	s.T().Log("Clearing database")
 	tablesToClear := []string{
 		"bars_1sec",
 		"hydration_state_1sec",

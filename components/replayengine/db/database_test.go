@@ -2,75 +2,44 @@ package db
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"slices"
 
-	// "testing"
-	"time"
+	"testing"
 
 	"cloud.google.com/go/civil"
+	testutils "github.com/mcudby/mwat/common/testing"
 	"github.com/mcudby/mwat/components/replayengine/common"
 
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-type dbTestSuite struct {
+type databaseTestSuite struct {
 	suite.Suite
-	ctx       context.Context
+	testutils.DatabaseSuite
+
 	container testcontainers.Container
 	db        *database
 }
 
-func (s *dbTestSuite) SetupSuite() {
-	s.ctx = s.T().Context()
-	url := s.setupTestDB()
-	s.db = RequireNewDatabase(url)
+func (s *databaseTestSuite) SetupSuite() {
+	s.DatabaseSuite.SetT(s.T())
+	s.DatabaseSuite.SetupSuite()
+
+	s.db = RequireNewDatabase(s.DatabaseConnectionURI)
 	s.db.RequireApplyMigrations()
 }
 
-func (suite *dbTestSuite) TearDownSuite() {
-	err := suite.container.Terminate(context.Background())
-	if err != nil {
-		suite.Assert().NoError(err, "failed to terminate suite container: %#v", err)
-	}
+func (s *databaseTestSuite) TearDownSuite() {
+	s.DatabaseSuite.TearDownSuite()
 }
 
-func (suite *dbTestSuite) ctxWithTimeout() context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
-	return ctx
+func (s *databaseTestSuite) TearDownTest() {
+	s.RequireClearDatabase()
 }
 
-func (suite *dbTestSuite) setupTestDB() string {
-	ctx := context.Background()
-
-	// Start timescale db container
-	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-	timescaleC, err := testcontainers.Run(
-		ctx,
-		"timescale/timescaledb-ha:pg18",
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithEnv(map[string]string{
-			"POSTGRES_PASSWORD": "password",
-			"POSTGRES_DB":       "postgres",
-		}),
-		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("5432/tcp"),
-		),
-	)
-	suite.Require().NoError(err)
-	suite.container = timescaleC
-
-	// Get endpoint
-	endpoint, err := timescaleC.Endpoint(ctx, "")
-	suite.Assert().NoError(err)
-	url := fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", endpoint)
-	return url
-}
-
-func (s *dbTestSuite) TestBatchStoreBars() {
+func (s *databaseTestSuite) TestBatchStoreBars() {
+	ctx := s.T().Context()
 	symbol := common.Symbol("RR")
 	date := civil.Date{
 		Year:  2026,
@@ -95,14 +64,14 @@ func (s *dbTestSuite) TestBatchStoreBars() {
 	err := s.db.BatchStoreBars(context.Background(), bars, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.db.GetCompleteTradingDay(s.ctx, symbol, date)
+	retBars, err := s.db.GetCompleteTradingDay(ctx, symbol, date)
 
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
 }
 
-func (s *dbTestSuite) TestLoadHydrationState() {
-	ctx := s.ctxWithTimeout()
+func (s *databaseTestSuite) TestLoadHydrationState() {
+	ctx := s.T().Context()
 	conn, err := s.db.getConn(ctx)
 	s.Require().NoError(err)
 
@@ -120,6 +89,6 @@ func (s *dbTestSuite) TestLoadHydrationState() {
 	s.Assert().Equal(expected, res[0])
 }
 
-// func TestDBTestSuite(t *testing.T) {
-// 	suite.Run(t, new(dbTestSuite))
-// }
+func TestDBTestSuite(t *testing.T) {
+	suite.Run(t, new(databaseTestSuite))
+}

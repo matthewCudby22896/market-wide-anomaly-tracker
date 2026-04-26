@@ -50,7 +50,7 @@ func (s *controlPlaneTestSuite) SetupSuite() {
 	s.requireCompileBinary()
 }
 
-func (s *controlPlaneTestSuite) AfterTest() {
+func (s *controlPlaneTestSuite) TearDownTest() {
 	s.RequireClearDatabase()
 }
 
