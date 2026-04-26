@@ -27,4 +27,5 @@ func main() {
 	<-c
 	fmt.Printf("\n")
 	s.Shutdown()
+	os.Exit(0)
 }

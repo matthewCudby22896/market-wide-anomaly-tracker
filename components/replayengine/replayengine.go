@@ -94,7 +94,7 @@ func (s *replayEngineServer) Shutdown() {
 	go func() {
 		defer s.wg.Done()
 
-		s.logger.Info("Shutting down http server...")
+		s.logger.Info("shutting down http server")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 

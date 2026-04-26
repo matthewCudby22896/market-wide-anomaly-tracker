@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mcudby/mwat/common"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
@@ -19,6 +21,11 @@ var PROJECT_ROOT = common.GetProjectRoot()
 
 const binaryName = "replayengine_binary"
 
+const (
+	POSTGRES_DB       = "postgres"
+	POSTGRES_PASSWORD = "password"
+)
+
 type controlPlaneTestSuite struct {
 	suite.Suite
 
@@ -26,14 +33,17 @@ type controlPlaneTestSuite struct {
 	binaryPath string
 
 	// database
-	dbURL       string
-	dbContainer testcontainers.DockerContainer
-	terminateDB func() error
+	databaseURL           string
+	databaseConnectionURI string
+	dbContainer           testcontainers.DockerContainer
+	terminateDB           func() error
+	conn                  *pgxpool.Conn
 }
 
 func (s *controlPlaneTestSuite) SetupSuite() {
 	s.requireCompileBinary()
 	s.requireStartTimescaleDB()
+	s.requiredInitDatabaseConn()
 }
 
 func (s *controlPlaneTestSuite) TearDownSuite() {
@@ -46,7 +56,6 @@ func (s *controlPlaneTestSuite) TearDownSuite() {
 }
 
 func (s *controlPlaneTestSuite) SetupTest() {
-	// todo: clear timescaledb tables before test starts
 
 }
 
@@ -73,10 +82,11 @@ func (s *controlPlaneTestSuite) requireCompileBinary() {
 
 // Starts the test timescale db
 // Populates:
-// - s.dbURL
+// - s.databaseURL
+// - s.connectionURI
 // - s.terminateDB
 func (s *controlPlaneTestSuite) requireStartTimescaleDB() {
-	ctx, _ := context.WithCancel(s.T().Context())
+	ctx := s.T().Context()
 
 	// Start timescale db container
 	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
@@ -85,8 +95,8 @@ func (s *controlPlaneTestSuite) requireStartTimescaleDB() {
 		"timescale/timescaledb-ha:pg18",
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithEnv(map[string]string{
-			"POSTGRES_PASSWORD": "password",
-			"POSTGRES_DB":       "postgres",
+			"POSTGRES_PASSWORD": POSTGRES_PASSWORD,
+			"POSTGRES_DB":       POSTGRES_DB,
 		}),
 		testcontainers.WithWaitStrategy(
 			wait.ForListeningPort("5432/tcp"),
@@ -94,14 +104,15 @@ func (s *controlPlaneTestSuite) requireStartTimescaleDB() {
 	)
 	s.Require().NoError(err)
 
-	// Get endpoint
-	endpoint, err := timescaleC.Endpoint(ctx, "")
+	// Get url
+	url, err := timescaleC.Endpoint(ctx, "")
 	s.Assert().NoError(err)
 
-	s.T().Logf("timescaleDB endpoint: %s", endpoint)
-
+	s.T().Logf("timescaleDB url: %s", url)
+	// todo: get database connection
 	// Populate suite
-	s.dbURL = fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", endpoint)
+	s.databaseURL = url
+	s.databaseConnectionURI = fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", url)
 
 	s.terminateDB = func() error {
 		ctx, _ := context.WithTimeout(s.T().Context(), 20*time.Second)
@@ -110,14 +121,36 @@ func (s *controlPlaneTestSuite) requireStartTimescaleDB() {
 	}
 }
 
-// todo: be able to specify the port s.t. it can connect to the test db
+// Populates
+// - s.conn
+func (s *controlPlaneTestSuite) requiredInitDatabaseConn() {
+	pool, err := pgxpool.New(context.Background(), s.databaseConnectionURI)
+	s.Require().NoErrorf(err, fmt.Sprintf("failed to initialise pgxpool.Pool: %s", err))
+
+	conn, err := pool.Acquire(s.T().Context())
+	s.Require().NoErrorf(err, fmt.Sprintf("failed to initialise pgxpool.Conn: %s", err))
+
+	s.conn = conn
+}
+
 func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
+	s.Require().NotEmptyf(s.databaseURL, "dbURL is not set")
+
 	ctx, cancel := context.WithCancel(s.T().Context())
 
-	cmd := exec.CommandContext(ctx, s.binaryPath)
+	cmd := exec.CommandContext(ctx, s.binaryPath, "-db-url", s.databaseURL)
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Environment Vars
+	env := os.Environ()
+	env = append(env, fmt.Sprintf("POSTGRES_PASSWORD=%s", POSTGRES_PASSWORD))
+	env = append(env, fmt.Sprintf("POSTGRES_DB=%s", POSTGRES_DB))
+	cmd.Env = env
+
 	err := cmd.Start()
+
 	s.Require().NoErrorf(err, "Failed to start replayengine")
 
 	cmd.Cancel = func() error {
@@ -127,16 +160,47 @@ func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
 
 	go func() {
 		err := cmd.Wait()
-		s.T().Logf("Server exited with error: %v", err)
+		select {
+		case <-ctx.Done():
+			s.T().Logf("Replay engine shutdown on os.Interrupt, err: %v", err)
+
+		default:
+			if err != nil {
+				s.T().Errorf("Replay engine crashed unexpectedly: %v", err)
+			}
+		}
 	}()
 
 	return cancel
 }
 
+func (s *controlPlaneTestSuite) requireClearDatabase() {
+	tablesToClear := []string{
+		"bars_1sec",
+		"hydration_state_1sec",
+	}
+
+	for _, table := range tablesToClear {
+		stmt := fmt.Sprintf("TRUNCATE TABLE %s;", strings.Join(tablesToClear, ", "))
+
+		_, err := s.conn.Exec(s.T().Context(), stmt)
+
+		s.Require().NoErrorf(err, "Failed to truncate table `%s`: %s", table, err)
+	}
+}
+
 func (s *controlPlaneTestSuite) TestStartAndStop() {
 	cancel := s.requireStartReplayEngine()
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 	cancel()
+
+	s.requireClearDatabase()
+
+	cancel = s.requireStartReplayEngine()
+	time.Sleep(5 * time.Second)
+	cancel()
+
+	s.requireClearDatabase()
 }
 
 // Test suite entry point
