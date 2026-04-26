@@ -1,7 +1,9 @@
 package test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -397,6 +399,59 @@ func (s *controlPlaneTestSuite) TestRestart() {
 	// THEN the simulation eventually restarts
 	s.Require().Truef(restarted, "simulation failed to restart in %d ticks", n)
 }
+
+type Settings struct {
+	Timescale      float32 `json:"timescale"`
+	SimulationDate string  `json:"simulation-date"`
+}
+
+func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
+	// GIVEN the replayengine is running
+	s.requireStartReplayEngine()
+
+	// AND a Get settings request is made
+	resp, err := http.Get(replayEngineSettingsURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// THEN the retrieved settings are as expected
+	expectedInitial := Settings{
+		Timescale:      5.0,
+		SimulationDate: "2025-03-20",
+	}
+	var dst Settings
+	err = json.NewDecoder(resp.Body).Decode(&dst)
+	s.Require().NoError(err)
+	s.Equal(expectedInitial, dst)
+
+	// GIVEN an Update settings request is made
+	updatedSettings := Settings{
+		Timescale:      10.0,
+		SimulationDate: "2026-01-01",
+	}
+	body, err := json.Marshal(updatedSettings)
+	s.Require().NoError(err)
+
+	// THEN no error occurs (Performing the update)
+	updateResp, err := http.Post(replayEngineSettingsURL, "application/json", bytes.NewBuffer(body))
+	s.Require().NoError(err)
+	defer updateResp.Body.Close()
+	s.Equal(http.StatusOK, updateResp.StatusCode)
+
+	// GIVEN a subsequent Get settings request is made
+	finalResp, err := http.Get(replayEngineSettingsURL)
+	s.Require().NoError(err)
+	defer finalResp.Body.Close()
+
+	// THEN the retrieved settings match those sent in the Update request
+	var finalSettings Settings
+	err = json.NewDecoder(finalResp.Body).Decode(&finalSettings)
+	s.Require().NoError(err)
+	s.Equal(updatedSettings, finalSettings)
+}
+
+// todo: basic test for Hydrate - this will be more complex
+// as requires somehow mocking the MASSIVE.com API
 
 // Test suite entry point
 func TestDBTestSuite(t *testing.T) {
