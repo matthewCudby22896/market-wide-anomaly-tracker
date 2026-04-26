@@ -2,13 +2,14 @@ package replayengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/db"
+	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
 type ReplayEnginerServer interface {
@@ -22,14 +23,18 @@ type replayEngineServer struct {
 	Server *http.Server
 	wg     sync.WaitGroup
 	logger Logger
-
-	Hub Hub
+	Hub    Hub
 }
 
-func NewReplayEngineServer() *replayEngineServer {
+type Opts struct {
+	DatabaseURL string
+	Port        string
+}
+
+func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	// Created once at this top level, and then passed down
 	// the component tree
-	database := db.RequireNewDatabase(DB_URL)
+	database := db.RequireNewDatabase(fmtDBUrl(opts.DatabaseURL))
 
 	// Apply migrations
 	database.RequireApplyMigrations()
@@ -37,7 +42,7 @@ func NewReplayEngineServer() *replayEngineServer {
 	mux := http.NewServeMux()
 
 	server := &http.Server{
-		Addr:    WS_SOCKET,
+		Addr:    ":" + opts.Port,
 		Handler: mux,
 	}
 
@@ -58,6 +63,7 @@ func NewReplayEngineServer() *replayEngineServer {
 	mux.HandleFunc("/simulation/restart", srv.handleRestart)
 	mux.HandleFunc("/control/settings", srv.handleSettings)
 	mux.HandleFunc("/control/hydrate", srv.handleHydrate)
+	mux.HandleFunc("/ping", srv.handlePing)
 
 	return srv
 }
@@ -74,6 +80,10 @@ func (s *replayEngineServer) Start() {
 		s.logger.Info(msg)
 		err := s.Server.ListenAndServe()
 		if err != nil {
+			if errors.Is(err, http.ErrServerClosed) {
+				s.logger.Info("http server closed.")
+				return
+			}
 			s.logger.Error("ListenAndServe() errored", "error", err)
 			return
 		} // Start child components
@@ -86,7 +96,7 @@ func (s *replayEngineServer) Shutdown() {
 	go func() {
 		defer s.wg.Done()
 
-		s.logger.Info("Shutting down http server...")
+		s.logger.Info("shutting down http server")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 

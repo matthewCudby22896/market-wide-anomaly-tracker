@@ -32,7 +32,7 @@ var migrationsFiles embed.FS
 func (db *database) RequireApplyMigrations() {
 	err := db.applyMigrations()
 	if err != nil {
-		log.Fatalf("Failed to apply migrations: %w", err)
+		log.Fatalf("Failed to apply migrations: %s", err)
 	}
 }
 

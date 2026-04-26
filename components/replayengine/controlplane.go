@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
-	"github.com/matthewCudby22896/market_wide_anomaly_tracker/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 type settingsPayload struct {
@@ -21,6 +21,10 @@ type settingsPayload struct {
 type hydrationRequest struct {
 	Symbol string `json:"symbol"`
 	Date   string `json:"date"`
+}
+
+func (s *replayEngineServer) handlePing(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *replayEngineServer) handlePause(w http.ResponseWriter, r *http.Request) {

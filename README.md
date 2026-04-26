@@ -20,9 +20,12 @@
 ```
 {"action":"unsubscribe","symbols":["AMZN"]}
 ```
-
+**Timestream**
 ```
 {"action":"subscribe","symbols":["TIMESTREAM"]}
+```
+```
+{"action":"unsubscribe","symbols":["TIMESTREAM"]}
 ```
 
 
