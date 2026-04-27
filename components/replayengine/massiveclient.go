@@ -24,7 +24,7 @@ const massiveClientID = "massive-client"
 
 type MassiveClient interface {
 	LifeCycle
-	FetchDayData(day civil.Date, ticker common.Symbol)
+	FetchDayData(ctx context.Context, day civil.Date, symbol common.Symbol) ([]common.Bar, error)
 }
 
 type massiveClient struct {
@@ -41,6 +41,10 @@ func NewMassiveClient() *massiveClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	API_KEY := os.Getenv("MASSIVE_API_KEY")
+
+	if API_KEY == "" {
+		log.Fatal("MASSIVE_API_KEY environment variable not set")
+	}
 
 	client := rest.NewWithOptions(
 		API_KEY,
