@@ -2,149 +2,144 @@ package test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/mcudby/mwat/common"
-	testutils "github.com/mcudby/mwat/common/testing"
+	// "github.com/mcudby/mwat/common"
+
 	"github.com/stretchr/testify/suite"
 )
 
-var PROJECT_ROOT = common.GetProjectRoot()
+// var PROJECT_ROOT = common.GetProjectRoot()
 
 const (
-	replayEngineWSURL       = "ws://localhost:9120/ws"
-	replayEnginePingURL     = "http://localhost:9120/ping"
+	replayEngineWSURL = "ws://localhost:9120/ws"
+	// replayEnginePingURL     = "http://localhost:9120/ping"
 	replayEnginePauseURL    = "http://localhost:9120/simulation/pause"
 	replayEngineResumeURL   = "http://localhost:9120/simulation/resume"
 	replayEngineRestartURL  = "http://localhost:9120/simulation/restart"
 	replayEngineSettingsURL = "http://localhost:9120/control/settings"
 	replayEngineHydrateURL  = "http://localhost:9120/control/hydrate"
 
-	binaryName = "replayengine_binary"
+	// binaryName = "replayengine_binary"
 
-	REPLAY_ENGINE_HTTP_PORT = "9120"
+	// REPLAY_ENGINE_HTTP_PORT = "9120"
 
-	POSTGRES_DB       = "postgres"
-	POSTGRES_PASSWORD = "password"
+	// POSTGRES_DB       = "postgres"
+	// POSTGRES_PASSWORD = "password"
 )
 
 type controlPlaneTestSuite struct {
 	suite.Suite
-	testutils.DatabaseSuite
+	baseSuite
 
 	binaryPath string
 }
 
 func (s *controlPlaneTestSuite) SetupSuite() {
-	s.DatabaseSuite.SetT(s.T())
-	s.DatabaseSuite.SetupSuite()
-
-	s.requireCompileBinary()
+	s.baseSuite.SetT(s.T())
+	s.baseSuite.SetupSuite()
 }
 
 func (s *controlPlaneTestSuite) TearDownTest() {
 	s.RequireClearDatabase()
 }
 
-func (s *controlPlaneTestSuite) requireCompileBinary() {
-	// Create test directory
-	dir := s.T().TempDir()
-	s.T().Logf("Created test directory `%s`", dir)
 
-	// Compile replay engine
-	compileTarget := filepath.Join(PROJECT_ROOT, "components/cmd/replay_engine/main.go")
-	binaryPath := filepath.Join(dir, binaryName)
 
-	cmd := exec.Command("go", "build", "-o", binaryPath, compileTarget)
-	outBytes, err := cmd.CombinedOutput()
-	s.Require().NoErrorf(
-		err,
-		fmt.Sprintf("Compilation failed, output: \n %s", string(outBytes)),
-	)
+// func (s *controlPlaneTestSuite) requireCompileBinary() {
+// 	// Create test directory
+// 	dir := s.T().TempDir()
+// 	s.T().Logf("Created test directory `%s`", dir)
 
-	s.T().Logf("Succesfully compiled replayengine binary at `%s`", binaryPath)
+// 	// Compile replay engine
+// 	compileTarget := filepath.Join(PROJECT_ROOT, "components/cmd/replay_engine/main.go")
+// 	binaryPath := filepath.Join(dir, binaryName)
 
-	s.binaryPath = binaryPath
-}
+// 	cmd := exec.Command("go", "build", "-o", binaryPath, compileTarget)
+// 	outBytes, err := cmd.CombinedOutput()
+// 	s.Require().NoErrorf(
+// 		err,
+// 		fmt.Sprintf("Compilation failed, output: \n %s", string(outBytes)),
+// 	)
 
-func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
-	s.Require().NotEmptyf(s.DatabaseURL, "dbURL is not set")
+// 	s.T().Logf("Succesfully compiled replayengine binary at `%s`", binaryPath)
 
-	ctx, cancel := context.WithCancel(s.T().Context())
+// 	s.binaryPath = binaryPath
+// }
 
-	cmd := exec.CommandContext(ctx, s.binaryPath, "-db-url", s.DatabaseURL, "-port", REPLAY_ENGINE_HTTP_PORT)
+// func (s *controlPlaneTestSuite) requireStartReplayEngine() context.CancelFunc {
+// 	s.Require().NotEmptyf(s.DatabaseURL, "dbURL is not set")
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+// 	ctx, cancel := context.WithCancel(s.T().Context())
 
-	// Environment Vars
-	env := os.Environ()
-	env = append(env, fmt.Sprintf("POSTGRES_PASSWORD=%s", POSTGRES_PASSWORD))
-	env = append(env, fmt.Sprintf("POSTGRES_DB=%s", POSTGRES_DB))
-	cmd.Env = env
+// 	cmd := exec.CommandContext(ctx, s.binaryPath, "-db-url", s.DatabaseURL, "-port", REPLAY_ENGINE_HTTP_PORT)
 
-	err := cmd.Start()
+// 	cmd.Stdout = os.Stdout
+// 	cmd.Stderr = os.Stderr
 
-	s.Require().NoErrorf(err, "Failed to start replayengine")
+// 	// Environment Vars
+// 	env := os.Environ()
+// 	env = append(env, fmt.Sprintf("POSTGRES_PASSWORD=%s", POSTGRES_PASSWORD))
+// 	env = append(env, fmt.Sprintf("POSTGRES_DB=%s", POSTGRES_DB))
+// 	cmd.Env = env
 
-	cmd.Cancel = func() error {
-		// akin to Ctrl + c
-		return cmd.Process.Signal(os.Interrupt)
-	}
+// 	err := cmd.Start()
 
-	go func() {
-		err := cmd.Wait()
-		select {
-		case <-ctx.Done():
-			s.T().Logf("Replay engine shutdown on os.Interrupt, err: %v", err)
+// 	s.Require().NoErrorf(err, "Failed to start replayengine")
 
-		default:
-			if err != nil {
-				s.T().Errorf("Replay engine crashed unexpectedly: %v", err)
-			}
-		}
-	}()
+// 	cmd.Cancel = func() error {
+// 		// akin to Ctrl + c
+// 		return cmd.Process.Signal(os.Interrupt)
+// 	}
 
-	s.T().Log("waiting for http server")
+// 	go func() {
+// 		err := cmd.Wait()
+// 		select {
+// 		case <-ctx.Done():
+// 			s.T().Logf("Replay engine shutdown on os.Interrupt, err: %v", err)
 
-	ctx, cancel = context.WithTimeout(s.T().Context(), 5*time.Second)
-	client := &http.Client{}
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
-		s.Require().NoError(err)
+// 		default:
+// 			if err != nil {
+// 				s.T().Errorf("Replay engine crashed unexpectedly: %v", err)
+// 			}
+// 		}
+// 	}()
 
-		resp, err := client.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusNoContent {
-				s.T().Log("replayengine is up")
-				break
-			}
-		}
+// 	s.T().Log("waiting for http server")
 
-		select {
-		case <-ctx.Done():
-			s.T().Fatal("timed out waiting for http server to start")
-		default:
-			time.Sleep(250 * time.Millisecond)
-		}
-	}
+// 	ctx, cancel = context.WithTimeout(s.T().Context(), 5*time.Second)
+// 	client := &http.Client{}
+// 	for {
+// 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
+// 		s.Require().NoError(err)
 
-	return cancel
-}
+// 		resp, err := client.Do(req)
+// 		if err == nil {
+// 			resp.Body.Close()
+// 			if resp.StatusCode == http.StatusNoContent {
+// 				s.T().Log("replayengine is up")
+// 				break
+// 			}
+// 		}
 
-func (s *controlPlaneTestSuite) TestStartReplayEngine() {
-	cancel := s.requireStartReplayEngine()
-	defer cancel()
-}
+// 		select {
+// 		case <-ctx.Done():
+// 			s.T().Fatal("timed out waiting for http server to start")
+// 		default:
+// 			time.Sleep(250 * time.Millisecond)
+// 		}
+// 	}
+
+// 	return cancel
+// }
+
+// func (s *controlPlaneTestSuite) TestStartReplayEngine() {
+// 	cancel := s.requireStartReplayEngine()
+// 	defer cancel()
+// }
 
 func (s *controlPlaneTestSuite) requireReceiveTick(c *testClient) time.Time {
 	tick := struct {
