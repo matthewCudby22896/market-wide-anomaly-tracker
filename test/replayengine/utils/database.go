@@ -21,7 +21,7 @@ type TestTimescaleDB struct {
 	t                 *testing.T
 	containerEndpoint string
 	connectionURI     string
-	cancel            func() error
+	Cancel            func() error
 	conn              *pgxpool.Conn
 }
 
@@ -67,7 +67,7 @@ func RequireStartTimescaleDB(
 		t:                 t,
 		containerEndpoint: endpoint,
 		connectionURI:     connectionURI,
-		cancel:            cancel,
+		Cancel:            cancel,
 		conn:              conn,
 	}
 }

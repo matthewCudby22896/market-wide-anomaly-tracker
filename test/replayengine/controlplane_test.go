@@ -38,12 +38,22 @@ func (s *controlPlaneTestSuite) SetupSuite() {
 		POSTGRES_DB,
 	)
 
+	cleanup := func() {
+		err := s.database.Cancel()
+		if err != nil {
+			t.Log(err)
+		}
+	}
+
+	t.Cleanup(cleanup)
+
 	s.replayengine = utils.RequireInitReplayEngine(
 		t,
 		s.database.GetContainerEndpoint(),
 		POSTGRES_PASSWORD,
 		POSTGRES_DB,
 	)
+
 }
 
 func (s *controlPlaneTestSuite) requireReceiveTick(c *utils.TestClient) time.Time {
@@ -60,10 +70,12 @@ func (s *controlPlaneTestSuite) requireReceiveTick(c *utils.TestClient) time.Tim
 }
 
 func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
-	ctx := s.T().Context()
+	t := s.T()
+	ctx := t.Context()
 
 	// GIVEN the replayengine is running
-	s.replayengine.RequireStartReplayEngine(s.T())
+	cancel := s.replayengine.RequireStartReplayEngine(t)
+	t.Cleanup(cancel)
 
 	// AND we have a connected client
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
@@ -111,11 +123,13 @@ func (s *controlPlaneTestSuite) requireRestartSimulation() {
 }
 
 func (s *controlPlaneTestSuite) TestPauseAndResume() {
-	ctx := s.T().Context()
+	t := s.T()
+	ctx := t.Context()
 	n := 100
 
 	// GIVEN the replay engine is running
-	s.replayengine.RequireStartReplayEngine(s.T())
+	cancel := s.replayengine.RequireStartReplayEngine(t)
+	t.Cleanup(cancel)
 
 	// AND a client is connected & subbed to the timestream
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
@@ -180,11 +194,13 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 }
 
 func (s *controlPlaneTestSuite) TestRestart() {
-	ctx := s.T().Context()
+	t := s.T()
+	ctx := t.Context()
 
 	// GIVEN the replayengine is running & the simulation is un-paused
 	// and a client is connected
-	s.replayengine.RequireStartReplayEngine(s.T())
+	cancel := s.replayengine.RequireStartReplayEngine(t)
+	t.Cleanup(cancel)
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
 	client.SubToTimestream()
 	s.Require().NoError(err)
@@ -221,8 +237,11 @@ type Settings struct {
 }
 
 func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
+	t := s.T()
+
 	// GIVEN the replayengine is running
-	s.replayengine.RequireStartReplayEngine(s.T())
+	cancel := s.replayengine.RequireStartReplayEngine(t)
+	t.Cleanup(cancel)
 
 	// AND a Get settings request is made
 	resp, err := http.Get(replayEngineSettingsURL)

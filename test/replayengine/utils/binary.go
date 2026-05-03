@@ -17,8 +17,8 @@ import (
 var PROJECT_ROOT = common.GetProjectRoot()
 
 const (
-	replayEngineMainPath      = "components/cmd/replay_engine/main.go"
-	replayEngineBinary    = "replayengine"
+	replayEngineMainPath = "components/cmd/replay_engine/main.go"
+	replayEngineBinary   = "replayengine"
 	replayEngineHTTPPort = "9120"
 	replayEnginePingURL  = "http://localhost:9120/ping"
 )
@@ -70,7 +70,7 @@ func requireCompileBinary(t *testing.T) string {
 	return dst
 }
 
-func (b *ReplayEngine) RequireStartReplayEngine(t *testing.T) {
+func (b *ReplayEngine) RequireStartReplayEngine(t *testing.T) context.CancelFunc {
 	ctx, cancel := context.WithCancel(b.t.Context())
 
 	cmd := exec.CommandContext(
@@ -110,37 +110,31 @@ func (b *ReplayEngine) RequireStartReplayEngine(t *testing.T) {
 			}
 		}
 	}()
-	
 
 	requireWaitTillPingable(t)
 
-	t.Cleanup(cancel)
+	return cancel
 }
 
 func requireWaitTillPingable(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	client := &http.Client{}
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
-		require.NoError(t, err)
+	require.Eventually(t,
+		func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			defer cancel()
 
-		resp, err := client.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusNoContent {
-				t.Log("replayengine is up")
-				break
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
+			require.NoError(t, err)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
 			}
-		}
+			defer resp.Body.Close()
 
-		select {
-		case <-ctx.Done():
-			t.Fatal("timed out waiting for http server to start")
-		default:
-			time.Sleep(250 * time.Millisecond)
-		}
-	}
-
-
-	t.Cleanup(cancel)
+			return resp.StatusCode == http.StatusNoContent
+		},
+		5*time.Second,
+		500*time.Millisecond,
+		"replayengine failed to respond to ping",
+	)
 }
