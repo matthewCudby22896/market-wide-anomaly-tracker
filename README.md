@@ -40,6 +40,10 @@ Clear timescale db
 ```
 sudo docker rm -f timescaledb
 ```
+Clear all docker containers
+```
+sudo docker rm -f $(docker ps -aq)
+```
 Start timescale db
 ```
 docker run -d --name timescaledb \

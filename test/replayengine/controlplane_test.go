@@ -1,6 +1,12 @@
 package test
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+
 	"github.com/stretchr/testify/suite"
 
 	"github.com/mcudby/mwat/test/replayengine/utils"
@@ -9,19 +15,257 @@ import (
 const (
 	POSTGRES_DB       = "postgres"
 	POSTGRES_PASSWORD = "password"
+
+	replayEngineWSURL       = "ws://localhost:9120/ws"
+	replayEnginePauseURL    = "http://localhost:9120/simulation/pause"
+	replayEngineResumeURL   = "http://localhost:9120/simulation/resume"
+	replayEngineRestartURL  = "http://localhost:9120/simulation/restart"
+	replayEngineSettingsURL = "http://localhost:9120/control/settings"
 )
 
 type controlPlaneTestSuite struct {
 	suite.Suite
 
-	database utils.TestTimescaleDB
+	database     *utils.TestTimescaleDB
+	replayengine *utils.ReplayEngine
 }
 
 func (s *controlPlaneTestSuite) SetupSuite() {
 	t := s.T()
-	s.database := utils.RequireStartTimescaleDB(
+	s.database = utils.RequireStartTimescaleDB(
 		t,
 		POSTGRES_PASSWORD,
 		POSTGRES_DB,
 	)
+
+	s.replayengine = utils.RequireInitReplayEngine(
+		t,
+		s.database.GetContainerEndpoint(),
+		POSTGRES_PASSWORD,
+		POSTGRES_DB,
+	)
+}
+
+func (s *controlPlaneTestSuite) requireReceiveTick(c *utils.TestClient) time.Time {
+	tick := struct {
+		Tick string `json:"tick"`
+	}{}
+	err := c.BlockingReceive(&tick)
+	s.Require().NoError(err)
+
+	t, err := time.Parse(time.RFC3339, tick.Tick)
+	s.Require().NoError(err)
+
+	return t
+}
+
+func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
+	ctx := s.T().Context()
+
+	// GIVEN the replayengine is running
+	s.replayengine.RequireStartReplayEngine(s.T())
+
+	// AND we have a connected client
+	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
+	s.Require().NoError(err)
+
+	// AND the client is subbed to the timestream
+	client.SubToTimestream()
+
+	// AND the client waits to read 10 ticks
+	firstTick := s.requireReceiveTick(client)
+	s.T().Log(firstTick)
+	for i := 0; i < 8; i++ {
+		tick := s.requireReceiveTick(client)
+		s.T().Log(tick)
+	}
+	lastTick := s.requireReceiveTick(client)
+	s.T().Log(lastTick)
+
+	// THEN the difference between the first and the last tick is 9 seconds
+	diff := lastTick.Sub(firstTick)
+	s.Require().Equal(9*time.Second, diff)
+}
+
+func (s *controlPlaneTestSuite) requirePauseSimulation() {
+	resp, err := http.Post(replayEnginePauseURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+	s.T().Log("replayengine paused.")
+}
+
+func (s *controlPlaneTestSuite) requireResumeSimulation() {
+	resp, err := http.Post(replayEngineResumeURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+
+	s.T().Log("replayengine resumed.")
+}
+
+func (s *controlPlaneTestSuite) requireRestartSimulation() {
+	resp, err := http.Post(replayEngineRestartURL, "", nil)
+	s.Require().NoError(err)
+	resp.Body.Close()
+
+	s.T().Log("replayengine resumed.")
+}
+
+func (s *controlPlaneTestSuite) TestPauseAndResume() {
+	ctx := s.T().Context()
+	n := 100
+
+	// GIVEN the replay engine is running
+	s.replayengine.RequireStartReplayEngine(s.T())
+
+	// AND a client is connected & subbed to the timestream
+	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
+	s.Require().NoError(err)
+	client.SubToTimestream()
+
+	// AND a pause command is issued
+	s.requirePauseSimulation()
+
+	paused := false
+	prev := s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if time.Time.Equal(curr, prev) {
+			paused = true
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation pauses within n ticks
+	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
+
+	// GIVEN a resume command is issued
+	s.requireResumeSimulation()
+	prev = s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if curr.Sub(prev) == time.Second {
+			paused = false
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation resumes within n ticks
+	s.Require().Falsef(paused, "simulation failed to resume in %d ticks", n)
+
+	// GIVEN a pause command is issued
+	s.requirePauseSimulation()
+	prev = s.requireReceiveTick(client)
+	for i := 0; i < n; i++ {
+		curr := s.requireReceiveTick(client)
+
+		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
+
+		if time.Time.Equal(curr, prev) {
+			paused = true
+			break
+		}
+		prev = curr
+	}
+
+	// THEN the simulation pauses within n ticks
+	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
+}
+
+func (s *controlPlaneTestSuite) TestRestart() {
+	ctx := s.T().Context()
+
+	// GIVEN the replayengine is running & the simulation is un-paused
+	// and a client is connected
+	s.replayengine.RequireStartReplayEngine(s.T())
+	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
+	client.SubToTimestream()
+	s.Require().NoError(err)
+	s.requireResumeSimulation()
+
+	// Let several ticks pass
+	s.requireReceiveTick(client)
+	s.requireReceiveTick(client)
+	s.requireReceiveTick(client)
+
+	// AND the simulation is then paused & restarted
+	s.requirePauseSimulation()
+	s.requireRestartSimulation()
+
+	restarted := false
+	n := 100
+	for i := 0; i < n; i++ {
+		tick := s.requireReceiveTick(client)
+
+		h, m, _ := tick.Clock()
+		if h == 9 && m == 30 {
+			// It is 9:30 AM
+			restarted = true
+			break
+		}
+	}
+	// THEN the simulation eventually restarts
+	s.Require().Truef(restarted, "simulation failed to restart in %d ticks", n)
+}
+
+type Settings struct {
+	Timescale      float32 `json:"timescale"`
+	SimulationDate string  `json:"simulation-date"`
+}
+
+func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
+	// GIVEN the replayengine is running
+	s.replayengine.RequireStartReplayEngine(s.T())
+
+	// AND a Get settings request is made
+	resp, err := http.Get(replayEngineSettingsURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+
+	// THEN the retrieved settings are as expected
+	expectedInitial := Settings{
+		Timescale:      5.0,
+		SimulationDate: "2025-03-20",
+	}
+	var dst Settings
+	err = json.NewDecoder(resp.Body).Decode(&dst)
+	s.Require().NoError(err)
+	s.Equal(expectedInitial, dst)
+
+	// GIVEN an Update settings request is made
+	updatedSettings := Settings{
+		Timescale:      10.0,
+		SimulationDate: "2026-01-01",
+	}
+	body, err := json.Marshal(updatedSettings)
+	s.Require().NoError(err)
+
+	// THEN no error occurs (Performing the update)
+	updateResp, err := http.Post(replayEngineSettingsURL, "application/json", bytes.NewBuffer(body))
+	s.Require().NoError(err)
+	defer updateResp.Body.Close()
+	s.Equal(http.StatusOK, updateResp.StatusCode)
+
+	// GIVEN a subsequent Get settings request is made
+	finalResp, err := http.Get(replayEngineSettingsURL)
+	s.Require().NoError(err)
+	defer finalResp.Body.Close()
+
+	// THEN the retrieved settings match those sent in the Update request
+	var finalSettings Settings
+	err = json.NewDecoder(finalResp.Body).Decode(&finalSettings)
+	s.Require().NoError(err)
+	s.Equal(updatedSettings, finalSettings)
+}
+
+// Test suite entry point
+func TestDBTestSuite(t *testing.T) {
+	suite.Run(t, new(controlPlaneTestSuite))
 }

@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +18,11 @@ import (
 )
 
 type TestTimescaleDB struct {
-	t             *testing.T
-	connectionURI string
-	cancel        func() error
-	conn          *pgxpool.Conn
+	t                 *testing.T
+	containerEndpoint string
+	connectionURI     string
+	cancel            func() error
+	conn              *pgxpool.Conn
 }
 
 func RequireStartTimescaleDB(
@@ -30,14 +32,14 @@ func RequireStartTimescaleDB(
 ) *TestTimescaleDB {
 	ctx := t.Context()
 
+	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	container, err := testcontainers.Run(
 		ctx,
 		"timescale/timescaledb-ha:pg18",
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithEnv(map[string]string{
-			"POSTGRES_PASSWORD":            postgresPassword,
-			"POSTGRES_DB":                  postgresDB,
-			"TESTCONTAINERS_RYUK_DISABLED": "true",
+			"POSTGRES_PASSWORD": postgresPassword,
+			"POSTGRES_DB":       postgresDB,
 		}),
 		testcontainers.WithWaitStrategy(
 			wait.ForListeningPort("5432/tcp"),
@@ -45,10 +47,12 @@ func RequireStartTimescaleDB(
 	)
 	require.NoError(t, err)
 
-	url, err := container.Endpoint(ctx, "")
+	endpoint, err := container.Endpoint(ctx, "")
+	t.Logf("database container endpoint: %s", endpoint)
 	require.NoError(t, err)
 
-	connectionURI := fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", url)
+	connectionURI := fmt.Sprintf("postgres://postgres:password@%s/postgres?sslmode=disable", endpoint)
+	t.Logf("database connection: %s", connectionURI)
 
 	cancel := func() error {
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -60,10 +64,11 @@ func RequireStartTimescaleDB(
 	conn := requireGetDatabaseConn(t, connectionURI)
 
 	return &TestTimescaleDB{
-		t:             t,
-		connectionURI: connectionURI,
-		cancel:        cancel,
-		conn:          conn,
+		t:                 t,
+		containerEndpoint: endpoint,
+		connectionURI:     connectionURI,
+		cancel:            cancel,
+		conn:              conn,
 	}
 }
 
@@ -93,4 +98,12 @@ func (db *TestTimescaleDB) RequireClearDatabase() {
 	_, err := db.conn.Exec(ctx, stmt)
 
 	require.NoError(db.t, err)
+}
+
+func (db *TestTimescaleDB) GetConnectionURI() string {
+	return db.connectionURI
+}
+
+func (db *TestTimescaleDB) GetContainerEndpoint() string {
+	return db.containerEndpoint
 }
