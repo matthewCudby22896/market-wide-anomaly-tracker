@@ -32,6 +32,7 @@ func (c *TestClient) BlockingReceive(dst any) error {
 	return wsjson.Read(c.ctx, c.conn, &dst)
 }
 
+// todo: import expected struct from replayengine
 func (c *TestClient) SubToTimestream() error {
 	subTimestream := struct {
 		Action  string   `json:"action"`
@@ -41,4 +42,15 @@ func (c *TestClient) SubToTimestream() error {
 		Symbols: []string{"TIMESTREAM"},
 	}
 	return c.Send(subTimestream)
+}
+
+func (c *TestClient) SubToSymbols(symbols []string) error {
+	subRequest := struct {
+		Action  string   `json:"action"`
+		Symbols []string `json:"symbols"`
+	}{
+		Action:  "subscribe",
+		Symbols: symbols,
+	}
+	return c.Send(subRequest)
 }

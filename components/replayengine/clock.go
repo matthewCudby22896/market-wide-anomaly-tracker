@@ -66,7 +66,7 @@ func NewClock(day civil.Date, speedup float32) *clock {
 		wg:               sync.WaitGroup{},
 		logger:           NewComponentLogger(clockID),
 		clockSettings:    settings,
-		isPaused:         false, // Init as un-paused for now
+		isPaused:         true, // Init in paused state
 		subscribers:      make(map[chan<- int64]struct{}),
 		timestreamOutbox: nil, // Initialised post-hox, by parent
 	}

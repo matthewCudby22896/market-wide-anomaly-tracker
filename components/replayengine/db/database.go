@@ -17,6 +17,7 @@ type ReplayEngineDB interface {
 	StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error
 	GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
+	ApplyMigrations() error
 }
 
 // Implements the Database interface

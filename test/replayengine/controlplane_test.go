@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	POSTGRES_DB       = "postgres"
-	POSTGRES_PASSWORD = "password"
+	postgresDB       = "postgres"
+	postgresPassword = "password"
 
 	replayEngineWSURL       = "ws://localhost:9120/ws"
 	replayEnginePauseURL    = "http://localhost:9120/simulation/pause"
@@ -34,8 +34,8 @@ func (s *controlPlaneTestSuite) SetupSuite() {
 	t := s.T()
 	s.database = utils.RequireStartTimescaleDB(
 		t,
-		POSTGRES_PASSWORD,
-		POSTGRES_DB,
+		postgresPassword,
+		postgresDB,
 	)
 
 	cleanup := func() {
@@ -50,10 +50,9 @@ func (s *controlPlaneTestSuite) SetupSuite() {
 	s.replayengine = utils.RequireInitReplayEngine(
 		t,
 		s.database.GetContainerEndpoint(),
-		POSTGRES_PASSWORD,
-		POSTGRES_DB,
+		postgresPassword,
+		postgresDB,
 	)
-
 }
 
 func (s *controlPlaneTestSuite) requireReceiveTick(c *utils.TestClient) time.Time {

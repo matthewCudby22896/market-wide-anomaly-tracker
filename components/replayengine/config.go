@@ -25,7 +25,7 @@ func fmtDBUrl(url string) string {
 	return fmt.Sprintf("postgres://%s:%s@%s/postgres?sslmode=disable", database, password, url)
 }
 
-const DEFAULT_TIMESCALE float32 = 5.0
+const DEFAULT_TIMESCALE float32 = 3600.0
 
 var DEFAULT_DAY = civil.Date{Year: 2025, Month: 3, Day: 20}
 

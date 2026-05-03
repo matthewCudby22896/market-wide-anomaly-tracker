@@ -30,14 +30,14 @@ func createMigrationsTable(ctx context.Context, conn *pgxpool.Conn) error {
 var migrationsFiles embed.FS
 
 func (db *replayenginedb) RequireApplyMigrations() {
-	err := db.applyMigrations()
+	err := db.ApplyMigrations()
 	if err != nil {
 		log.Fatalf("Failed to apply migrations: %s", err)
 	}
 }
 
 // TODO: Look into migration hash chains more
-func (db *replayenginedb) applyMigrations() error {
+func (db *replayenginedb) ApplyMigrations() error {
 	ctx := context.WithoutCancel(context.Background())
 
 	conn, err := db.getConn(ctx)

@@ -116,7 +116,7 @@ func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol
 		log.Fatal(err)
 	}
 
-	aggregateData := make([]common.Bar, 0, 4680)
+	aggregateData := make([]common.Bar, 0, 4680) // todo: fix
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
 	i := 0

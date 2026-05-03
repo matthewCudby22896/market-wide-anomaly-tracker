@@ -82,13 +82,14 @@ func (t *symbolThread) Start() {
 		// Wait for a tick
 		tick := <-t.ticks
 
+		// todo: check logic / fix
 		// Trim out-of-date bars
-		for i := len(series) - 1; i >= 0; i-- {
-			if series[i].T >= tick {
-				series = series[:i+1]
-				break
-			}
-		}
+		// for i := len(series) - 1; i >= 0; i-- {
+		// 	if series[i].T >= tick {
+		// 		series = series[:i+1]
+		// 		break
+		// 	}
+		// }
 
 		for {
 			select {
