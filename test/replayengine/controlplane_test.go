@@ -285,6 +285,6 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 }
 
 // Test suite entry point
-func TestDBTestSuite(t *testing.T) {
+func TestConrolPlane(t *testing.T) {
 	suite.Run(t, new(controlPlaneTestSuite))
 }

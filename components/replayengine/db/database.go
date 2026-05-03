@@ -13,9 +13,9 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-type Database interface {
-	BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error
-	GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
+type ReplayEngineDB interface {
+	StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error
+	GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
 }
 
@@ -52,7 +52,7 @@ func (db *replayenginedb) getConn(ctx context.Context) (*pgxpool.Conn, error) {
 
 // Note - future optimisation: This could likely be quicker if I implement the
 // CopyFromSource interface (to avoid buffering in memory)
-func (db *replayenginedb) BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error {
+func (db *replayenginedb) StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error {
 	conn, err := db.getConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -68,14 +68,14 @@ func (db *replayenginedb) BatchStoreBars(ctx context.Context, bars common.Series
 	n, err := tx.CopyFrom(
 		ctx,
 		pgx.Identifier{"bars_1sec"},
-		bars.ColNames(),
-		pgx.CopyFromRows(bars.ToRows()),
+		series.ColNames(),
+		pgx.CopyFromRows(series.ToRows()),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to bulk insert: %w", err)
 	}
-	if n != int64(len(bars)) {
-		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(bars))
+	if n != int64(len(series)) {
+		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(series))
 	}
 
 	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
@@ -95,8 +95,7 @@ func (db *replayenginedb) updateHydrationStateTableInTx(ctx context.Context, tx 
 	return nil
 }
 
-// TODO: Rename
-func (db *replayenginedb) GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
+func (db *replayenginedb) GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
 	conn, err := db.getConn(ctx)
 	defer conn.Release()
 	if err != nil {

@@ -3,13 +3,12 @@ package db
 import (
 	"context"
 	"slices"
-
 	"testing"
 
 	"cloud.google.com/go/civil"
+
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/test/replayengine/utils"
-
 	"github.com/stretchr/testify/suite"
 )
 
@@ -72,10 +71,10 @@ func (s *databaseTestSuite) TestBatchStoreBars() {
 	}
 	slices.Reverse(bars)
 
-	err := s.replayenginedb.BatchStoreBars(context.Background(), bars, symbol, date)
+	err := s.replayenginedb.StoreSeries(context.Background(), bars, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.replayenginedb.GetCompleteTradingDay(ctx, symbol, date)
+	retBars, err := s.replayenginedb.GetSeries(ctx, symbol, date)
 
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")

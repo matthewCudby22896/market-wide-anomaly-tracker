@@ -100,7 +100,7 @@ type hub struct {
 
 	DataCoordinator
 	Clock
-	Database db.Database
+	Database db.ReplayEngineDB
 }
 
 type simulationSettings struct {
@@ -115,7 +115,7 @@ func defaultSimulationSettings() simulationSettings {
 	}
 }
 
-func NewHub(database db.Database) *hub {
+func NewHub(database db.ReplayEngineDB) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := defaultSimulationSettings()
