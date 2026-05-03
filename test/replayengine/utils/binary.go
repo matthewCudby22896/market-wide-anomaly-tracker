@@ -3,10 +3,12 @@ package utils
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mcudby/mwat/common"
 	"github.com/stretchr/testify/require"
@@ -15,19 +17,45 @@ import (
 var PROJECT_ROOT = common.GetProjectRoot()
 
 const (
-	REPLAY_ENGINE_MAIN      = "components/cmd/replay_engine/main.go"
-	REPLAY_ENGINE_BINARY    = "replayengine"
-	REPLAY_ENGINE_HTTP_PORT = "9120"
+	replayEngineMainPath      = "components/cmd/replay_engine/main.go"
+	replayEngineBinary    = "replayengine"
+	replayEngineHTTPPort = "9120"
+	replayEnginePingURL  = "http://localhost:9120/ping"
 )
 
+type ReplayEngine struct {
+	t                *testing.T
+	pathToBinary     string
+	databaseURL      string
+	postgresPassword string
+	postgresDB       string
+}
+
+func RequireInitReplayEngine(
+	t *testing.T,
+	databaseURL string,
+	postgresPassword string,
+	postgresDB string,
+) *ReplayEngine {
+	path := requireCompileBinary(t)
+
+	return &ReplayEngine{
+		t:                t,
+		pathToBinary:     path,
+		databaseURL:      databaseURL,
+		postgresPassword: postgresPassword,
+		postgresDB:       postgresDB,
+	}
+}
+
 // Compiles the replayengine binary and returns the path to its location
-func RequireCompileBinary(t *testing.T) string {
+func requireCompileBinary(t *testing.T) string {
 	tmp := t.TempDir()
 
 	t.Logf("created test directory `%s`", tmp)
 
-	compileTarget := filepath.Join(PROJECT_ROOT, REPLAY_ENGINE_MAIN)
-	dst := filepath.Join(tmp, REPLAY_ENGINE_BINARY)
+	compileTarget := filepath.Join(PROJECT_ROOT, replayEngineMainPath)
+	dst := filepath.Join(tmp, replayEngineBinary)
 
 	cmd := exec.Command("go", "build", "-o", dst, compileTarget)
 	outBytes, err := cmd.CombinedOutput()
@@ -42,22 +70,16 @@ func RequireCompileBinary(t *testing.T) string {
 	return dst
 }
 
-func RequireStartReplayEngine(
-	t *testing.T,
-	pathToBinary string,
-	databaseURL string,
-	postgresPassword string,
-	postgresDB string,
-) {
-	ctx, cancel := context.WithCancel(t.Context())
+func (b *ReplayEngine) RequireStartReplayEngine(t *testing.T) {
+	ctx, cancel := context.WithCancel(b.t.Context())
 
 	cmd := exec.CommandContext(
 		ctx,
-		pathToBinary,
+		b.pathToBinary,
 		"-db-url",
-		databaseURL,
+		b.databaseURL,
 		"-port",
-		REPLAY_ENGINE_HTTP_PORT,
+		replayEngineHTTPPort,
 	)
 
 	cmd.Stdout = os.Stdout
@@ -65,8 +87,8 @@ func RequireStartReplayEngine(
 
 	// Environment Vars
 	env := os.Environ()
-	env = append(env, fmt.Sprintf("POSTGRES_PASSWORD=%s", postgresPassword))
-	env = append(env, fmt.Sprintf("POSTGRES_DB=%s", postgresDB))
+	env = append(env, fmt.Sprintf("POSTGRES_PASSWORD=%s", b.postgresPassword))
+	env = append(env, fmt.Sprintf("POSTGRES_DB=%s", b.postgresDB))
 	cmd.Env = env
 
 	cmd.Cancel = func() error {
@@ -75,7 +97,7 @@ func RequireStartReplayEngine(
 	}
 
 	err := cmd.Start() // non-blocking
-	require.NoError(t, err, "failed to start replayengine")
+	require.NoError(b.t, err, "failed to start replayengine")
 
 	go func() {
 		err := cmd.Wait()
@@ -88,6 +110,37 @@ func RequireStartReplayEngine(
 			}
 		}
 	}()
+	
+
+	requireWaitTillPingable(t)
+
+	t.Cleanup(cancel)
+}
+
+func requireWaitTillPingable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	client := &http.Client{}
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, replayEnginePingURL, nil)
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusNoContent {
+				t.Log("replayengine is up")
+				break
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for http server to start")
+		default:
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+
 
 	t.Cleanup(cancel)
 }
