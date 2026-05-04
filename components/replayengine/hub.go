@@ -360,12 +360,12 @@ func (h *hub) handleSub(req subRequest) {
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
-			if h.DataCoordinator.IsReady(symbol, DEFAULT_DAY) {
+			if h.DataCoordinator.IsReady(symbol, h.settings.Date) {
 
 				// If ready, notify main loop
 				h.dataInfoInbox <- hydrationSuccess{
 					Symbol: symbol,
-					Date:   DEFAULT_DAY,
+					Date:   h.settings.Date,
 				}
 			}
 

@@ -81,7 +81,6 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 			s.logger.Info("failed to update settings", "error", err)
 			errorWithMsg(w, err.Error(), http.StatusBadRequest)
 			return
-
 		}
 		s.Hub.SetSimulationSettings(settings)
 

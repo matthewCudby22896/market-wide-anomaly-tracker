@@ -1,8 +1,11 @@
 package test
 
 import (
+	"bytes"
 	"embed"
 	"encoding/gob"
+	"encoding/json"
+	"io"
 	"net/http"
 	"slices"
 	"testing"
@@ -67,7 +70,8 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	var expectedSeries enginecommon.Series
 	gob.NewDecoder(f).Decode(&expectedSeries)
 
-	// Store series
+	// GIVEN the series for QQQ on 2025-03-20 is stored in
+	// the replayengine's db
 	symbol := enginecommon.Symbol("QQQ")
 	date, err := civil.ParseDate("2025-03-20")
 	s.Require().NoError(err)
@@ -80,33 +84,61 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	slices.Reverse(series)
 	s.Require().Equal(expectedSeries, series)
 
-	// Start replayengine
+	// AND the replayengine is running
 	cancel := s.replayengine.RequireStartReplayEngine(t)
 	t.Cleanup(cancel)
 
-	// Client connects
+	// AND the simulation settings are set to the correct day with a high timescale
+	settings := Settings{
+		Timescale:      3600.0,
+		SimulationDate: "2025-03-20",
+	}
+	body, err := json.Marshal(settings)
+	s.Require().NoError(err)
+
+	resp, err := http.Post(replayEngineSettingsURL, "application/json", bytes.NewBuffer(body))
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.T().Log(resp)
+
+	resp, err = http.Get(replayEngineSettingsURL)
+	s.Require().NoError(err)
+	defer resp.Body.Close()
+	s.T().Log(resp)
+	body, err = io.ReadAll(resp.Body)
+	s.Require().NoError(err)
+
+	s.T().Logf("Response Body: %s", string(body))
+
+	// AND we have a connected client
 	n := len(expectedSeries)
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
 	s.Require().NoError(err)
 
-	// Subscribe to QQQ
+	// AND the client subscribes to QQQ
 	err = client.SubToSymbols([]string{"QQQ"})
 	s.Require().NoError(err)
 
 	time.Sleep(2 * time.Second)
 
-	// Start simulation
+	// WHEN the simulation is started
 	s.requireResumeSimulation()
 
-	// actualSeries := make(enginecommon.Series, n)
+	// THEN the replayengine streams out every datapoint
+	// in chronological order
+	actualSeries := make(enginecommon.Series, n)
 	for i := 0; i < n; i++ {
-		var bar any
+		var bar enginecommon.Bar
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
-		// actualSeries[0] = bar
+		actualSeries[i] = bar
 		s.T().Log(bar)
-		s.T().Logf("%d / %d", i, n)
+		s.T().Logf("%d / %d", i+1, n)
 	}
+
+	// AND the streamed out data is identical to the data
+	// stored within the db
+	s.Require().Equal(expectedSeries, actualSeries)
 }
 
 // Test suite entry point

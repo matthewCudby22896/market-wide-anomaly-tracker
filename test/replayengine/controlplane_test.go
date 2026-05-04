@@ -82,6 +82,7 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 
 	// AND the client is subbed to the timestream
 	client.SubToTimestream()
+	s.requireResumeSimulation()
 
 	// AND the client waits to read 10 ticks
 	firstTick := s.requireReceiveTick(client)
