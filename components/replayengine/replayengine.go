@@ -34,7 +34,10 @@ type Opts struct {
 func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	// Created once at this top level, and then passed down
 	// the component tree
-	database := db.RequireNewDatabase(fmtDBUrl(opts.DatabaseURL))
+	database := db.EstablishDBConnection(
+		context.Background(),
+		fmtDBUrl(opts.DatabaseURL),
+	)
 
 	// Apply migrations
 	database.RequireApplyMigrations()

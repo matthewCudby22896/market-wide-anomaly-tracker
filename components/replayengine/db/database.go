@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/jackc/pgx/v5"
@@ -13,13 +14,6 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-// type ReplayEngineDB interface {
-// 	StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error
-// 	GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
-// 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
-// 	ApplyMigrations() error
-// }
-
 // Implements the Database interface
 type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
@@ -27,9 +21,36 @@ type ReplayEngineDB struct {
 
 var once sync.Once
 
+func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
+	pool, err := pgxpool.New(ctx, connectionURI)
+	if err != nil {
+		log.Fatalf("failed to instantiate connection pool")
+	}
+
+	timeout := time.After(20 * time.Second)
+	for {
+		_, err := pool.Acquire(ctx)
+		if err == nil {
+			break
+		}
+		select {
+		default:
+			time.Sleep(500 * time.Millisecond)
+		case <-timeout:
+			log.Fatalf("failed to ping database within allotted time")
+		}
+	}
+
+	return &ReplayEngineDB{
+		connPool: pool,
+	}
+}
+
 func RequireNewDatabase(connectionURI string) *ReplayEngineDB {
 	var db *ReplayEngineDB
 	once.Do(func() {
+		/* A pool returns without waiting for any connections to be established
+		 */
 		pool, err := pgxpool.New(context.Background(), connectionURI)
 		if err != nil {
 			log.Fatalf("Failed to init database: %#v", err)

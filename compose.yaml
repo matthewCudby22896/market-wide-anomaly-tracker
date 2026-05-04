@@ -2,5 +2,19 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     ports:
-     - "6543:5432"
+     - "6543:5432" # external:internal
+    environment:
+     - POSTGRES_PASSWORD=password
+
+  replayengine:
+    build: .
+    image: replayengine:latest
+    ports:
+     - "8080:8080" # external:internal
+    environment:
+     - POSTGRES_DB=postgres
+     - POSTGRES_PASSWORD=password
+     - MASSIVE_API_KEY=${MASSIVE_API_KEY}
+    command: ["replayengine", "-db-url", "timescaledb:5432", "-port", "8080"]
+
    
