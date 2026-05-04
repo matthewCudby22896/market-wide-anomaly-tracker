@@ -14,12 +14,6 @@
 {"action":"unsub","symbols":["NVDA"]}
 ```
 
-```
-{"action":"sub","symbols":["AMZN"]}
-```
-```
-{"action":"unsub","symbols":["AMZN"]}
-```
 **Timestream**
 ```
 {"action":"sub","symbols":["TIMESTREAM"]}
@@ -63,3 +57,8 @@ docker build . -t replayengine
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
 
+#### Docker Compose
+```
+docker compose up
+docker compose up --build
+```
