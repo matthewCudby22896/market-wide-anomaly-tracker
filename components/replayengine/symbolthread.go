@@ -28,10 +28,10 @@ type symbolThread struct {
 	logger    *Logger
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
-	db        db.ReplayEngineDB
+	db        *db.ReplayEngineDB
 }
 
-func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db db.ReplayEngineDB) *symbolThread {
+func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db *db.ReplayEngineDB) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	id := fmt.Sprintf("%s-%s", symbol, date.String())

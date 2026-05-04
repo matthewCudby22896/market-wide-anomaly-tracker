@@ -100,7 +100,7 @@ type hub struct {
 
 	DataCoordinator
 	Clock
-	Database db.ReplayEngineDB
+	Database *db.ReplayEngineDB
 }
 
 type simulationSettings struct {
@@ -110,12 +110,12 @@ type simulationSettings struct {
 
 func defaultSimulationSettings() simulationSettings {
 	return simulationSettings{
-		Timescale: DEFAULT_TIMESCALE,
-		Date:      DEFAULT_DAY,
+		Timescale: DefaultTimescale,
+		Date:      DefaultDay,
 	}
 }
 
-func NewHub(database db.ReplayEngineDB) *hub {
+func NewHub(database *db.ReplayEngineDB) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := defaultSimulationSettings()

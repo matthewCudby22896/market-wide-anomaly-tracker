@@ -5,6 +5,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/mcudby/mwat/components/replayengine"
 )
 
 type TestClient struct {
@@ -32,25 +34,26 @@ func (c *TestClient) BlockingReceive(dst any) error {
 	return wsjson.Read(c.ctx, c.conn, &dst)
 }
 
-// todo: import expected struct from replayengine
 func (c *TestClient) SubToTimestream() error {
-	subTimestream := struct {
-		Action  string   `json:"action"`
-		Symbols []string `json:"symbols"`
-	}{
-		Action:  "subscribe",
+	req := replayengine.SubscriptionRequest{
+		Action: "sub",
 		Symbols: []string{"TIMESTREAM"},
 	}
-	return c.Send(subTimestream)
+	return c.Send(req)
 }
 
 func (c *TestClient) SubToSymbols(symbols []string) error {
-	subRequest := struct {
-		Action  string   `json:"action"`
-		Symbols []string `json:"symbols"`
-	}{
-		Action:  "subscribe",
+	req := replayengine.SubscriptionRequest{
+		Action: "sub",
 		Symbols: symbols,
 	}
-	return c.Send(subRequest)
+	return c.Send(req)
+}
+
+func (c *TestClient) UnsubToSymbols(symbols []string) error {
+	req := replayengine.SubscriptionRequest{
+		Action: "unsub",
+		Symbols: symbols,
+	}
+	return c.Send(req)
 }

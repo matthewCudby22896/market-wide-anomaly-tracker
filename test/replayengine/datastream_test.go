@@ -1,12 +1,8 @@
 package test
 
 import (
-	"bytes"
 	"embed"
 	"encoding/gob"
-	"encoding/json"
-	"io"
-	"net/http"
 	"slices"
 	"testing"
 	"time"
@@ -14,6 +10,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/mcudby/mwat/components/replayengine"
 	enginecommon "github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/test/replayengine/utils"
@@ -24,7 +21,7 @@ type datastreamTestSuite struct {
 
 	database       *utils.TestTimescaleDB
 	replayengine   *utils.ReplayEngine
-	replayenginedb db.ReplayEngineDB
+	replayenginedb *db.ReplayEngineDB
 }
 
 func (s *datastreamTestSuite) SetupSuite() {
@@ -79,7 +76,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	err = s.replayenginedb.StoreSeries(ctx, expectedSeries, symbol, date)
 	s.Require().NoError(err)
 
-	// Verify series has been correctly stored
+	// verify series has been correctly stored
 	series, err := s.replayenginedb.GetSeries(ctx, symbol, date)
 	slices.Reverse(series)
 	s.Require().Equal(expectedSeries, series)
@@ -89,26 +86,13 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	t.Cleanup(cancel)
 
 	// AND the simulation settings are set to the correct day with a high timescale
-	settings := Settings{
-		Timescale:      3600.0,
-		SimulationDate: "2025-03-20",
-	}
-	body, err := json.Marshal(settings)
-	s.Require().NoError(err)
-
-	resp, err := http.Post(replayEngineSettingsURL, "application/json", bytes.NewBuffer(body))
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.T().Log(resp)
-
-	resp, err = http.Get(replayEngineSettingsURL)
-	s.Require().NoError(err)
-	defer resp.Body.Close()
-	s.T().Log(resp)
-	body, err = io.ReadAll(resp.Body)
-	s.Require().NoError(err)
-
-	s.T().Logf("Response Body: %s", string(body))
+	utils.RequireUpdateSettings(
+		t,
+		replayengine.ReplayEngineSettings{
+			Timescale:      3600.0,
+			SimulationDate: "2025-03-20",
+		},
+	)
 
 	// AND we have a connected client
 	n := len(expectedSeries)
@@ -122,7 +106,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	time.Sleep(2 * time.Second)
 
 	// WHEN the simulation is started
-	s.requireResumeSimulation()
+	utils.RequireResumeSimulation(t)
 
 	// THEN the replayengine streams out every datapoint
 	// in chronological order
@@ -132,8 +116,8 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
 		actualSeries[i] = bar
-		s.T().Log(bar)
-		s.T().Logf("%d / %d", i+1, n)
+		// s.T().Log(bar)
+		// s.T().Logf("%d / %d", i+1, n)
 	}
 
 	// AND the streamed out data is identical to the data
@@ -144,21 +128,4 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 // Test suite entry point
 func TestDataStreamTestSuite(t *testing.T) {
 	suite.Run(t, new(datastreamTestSuite))
-}
-
-// todo: common loc
-func (s *datastreamTestSuite) requirePauseSimulation() {
-	resp, err := http.Post(replayEnginePauseURL, "", nil)
-	s.Require().NoError(err)
-	resp.Body.Close()
-	s.T().Log("replayengine paused.")
-}
-
-// todo: common loc
-func (s *datastreamTestSuite) requireResumeSimulation() {
-	resp, err := http.Post(replayEngineResumeURL, "", nil)
-	s.Require().NoError(err)
-	resp.Body.Close()
-
-	s.T().Log("replayengine resumed.")
 }

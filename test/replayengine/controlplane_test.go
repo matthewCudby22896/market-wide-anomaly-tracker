@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/mcudby/mwat/components/replayengine"
 	"github.com/mcudby/mwat/test/replayengine/utils"
 )
 
@@ -82,7 +83,7 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 
 	// AND the client is subbed to the timestream
 	client.SubToTimestream()
-	s.requireResumeSimulation()
+	utils.RequireResumeSimulation(t)
 
 	// AND the client waits to read 10 ticks
 	firstTick := s.requireReceiveTick(client)
@@ -97,29 +98,6 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	// THEN the difference between the first and the last tick is 9 seconds
 	diff := lastTick.Sub(firstTick)
 	s.Require().Equal(9*time.Second, diff)
-}
-
-func (s *controlPlaneTestSuite) requirePauseSimulation() {
-	resp, err := http.Post(replayEnginePauseURL, "", nil)
-	s.Require().NoError(err)
-	resp.Body.Close()
-	s.T().Log("replayengine paused.")
-}
-
-func (s *controlPlaneTestSuite) requireResumeSimulation() {
-	resp, err := http.Post(replayEngineResumeURL, "", nil)
-	s.Require().NoError(err)
-	resp.Body.Close()
-
-	s.T().Log("replayengine resumed.")
-}
-
-func (s *controlPlaneTestSuite) requireRestartSimulation() {
-	resp, err := http.Post(replayEngineRestartURL, "", nil)
-	s.Require().NoError(err)
-	resp.Body.Close()
-
-	s.T().Log("replayengine resumed.")
 }
 
 func (s *controlPlaneTestSuite) TestPauseAndResume() {
@@ -137,7 +115,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	client.SubToTimestream()
 
 	// AND a pause command is issued
-	s.requirePauseSimulation()
+	utils.RequirePauseSimulation(t)
 
 	paused := false
 	prev := s.requireReceiveTick(client)
@@ -157,7 +135,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	s.Require().Truef(paused, "simulation failed to pause in %d ticks", n)
 
 	// GIVEN a resume command is issued
-	s.requireResumeSimulation()
+	utils.RequireResumeSimulation(t)
 	prev = s.requireReceiveTick(client)
 	for i := 0; i < n; i++ {
 		curr := s.requireReceiveTick(client)
@@ -175,7 +153,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	s.Require().Falsef(paused, "simulation failed to resume in %d ticks", n)
 
 	// GIVEN a pause command is issued
-	s.requirePauseSimulation()
+	utils.RequirePauseSimulation(t)
 	prev = s.requireReceiveTick(client)
 	for i := 0; i < n; i++ {
 		curr := s.requireReceiveTick(client)
@@ -204,7 +182,7 @@ func (s *controlPlaneTestSuite) TestRestart() {
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
 	client.SubToTimestream()
 	s.Require().NoError(err)
-	s.requireResumeSimulation()
+	utils.RequireResumeSimulation(t)
 
 	// Let several ticks pass
 	s.requireReceiveTick(client)
@@ -212,8 +190,8 @@ func (s *controlPlaneTestSuite) TestRestart() {
 	s.requireReceiveTick(client)
 
 	// AND the simulation is then paused & restarted
-	s.requirePauseSimulation()
-	s.requireRestartSimulation()
+	utils.RequirePauseSimulation(t)
+	utils.RequireRestartSimulation(t)
 
 	restarted := false
 	n := 100
@@ -231,11 +209,6 @@ func (s *controlPlaneTestSuite) TestRestart() {
 	s.Require().Truef(restarted, "simulation failed to restart in %d ticks", n)
 }
 
-type Settings struct {
-	Timescale      float32 `json:"timescale"`
-	SimulationDate string  `json:"simulation-date"`
-}
-
 func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	t := s.T()
 
@@ -243,23 +216,23 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	cancel := s.replayengine.RequireStartReplayEngine(t)
 	t.Cleanup(cancel)
 
-	// AND a Get settings request is made
+	expectedInitial := replayengine.ReplayEngineSettings{
+		Timescale:      replayengine.DefaultTimescale,
+		SimulationDate: replayengine.DefaultDay.String(),
+	}
+
+	// AND a Get Settings request is made
 	resp, err := http.Get(replayEngineSettingsURL)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
-	// THEN the retrieved settings are as expected
-	expectedInitial := Settings{
-		Timescale:      5.0,
-		SimulationDate: "2025-03-20",
-	}
-	var dst Settings
+	var dst replayengine.ReplayEngineSettings
 	err = json.NewDecoder(resp.Body).Decode(&dst)
 	s.Require().NoError(err)
 	s.Equal(expectedInitial, dst)
 
 	// GIVEN an Update settings request is made
-	updatedSettings := Settings{
+	updatedSettings := replayengine.ReplayEngineSettings{
 		Timescale:      10.0,
 		SimulationDate: "2026-01-01",
 	}
@@ -278,7 +251,7 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	defer finalResp.Body.Close()
 
 	// THEN the retrieved settings match those sent in the Update request
-	var finalSettings Settings
+	var finalSettings replayengine.ReplayEngineSettings 
 	err = json.NewDecoder(finalResp.Body).Decode(&finalSettings)
 	s.Require().NoError(err)
 	s.Equal(updatedSettings, finalSettings)

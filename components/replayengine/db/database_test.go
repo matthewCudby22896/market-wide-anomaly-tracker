@@ -1,4 +1,4 @@
-package db
+package db_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/test/replayengine/utils"
+	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -21,7 +22,7 @@ type databaseTestSuite struct {
 	suite.Suite
 	database utils.TestTimescaleDB
 
-	replayenginedb *replayenginedb
+	replayEngineDB *db.ReplayEngineDB
 }
 
 func (s *databaseTestSuite) SetupSuite() {
@@ -41,8 +42,8 @@ func (s *databaseTestSuite) SetupSuite() {
 
 	t.Cleanup(cleanup)
 
-	s.replayenginedb = RequireNewDatabase(s.database.GetConnectionURI())
-	s.replayenginedb.RequireApplyMigrations()
+	s.replayEngineDB = db.RequireNewDatabase(s.database.GetConnectionURI())
+	s.replayEngineDB.RequireApplyMigrations()
 }
 
 func (s *databaseTestSuite) SetupTest() {
@@ -71,10 +72,10 @@ func (s *databaseTestSuite) TestBatchStoreBars() {
 	}
 	slices.Reverse(bars)
 
-	err := s.replayenginedb.StoreSeries(context.Background(), bars, symbol, date)
+	err := s.replayEngineDB.StoreSeries(context.Background(), bars, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.replayenginedb.GetSeries(ctx, symbol, date)
+	retBars, err := s.replayEngineDB.GetSeries(ctx, symbol, date)
 
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
@@ -82,14 +83,14 @@ func (s *databaseTestSuite) TestBatchStoreBars() {
 
 func (s *databaseTestSuite) TestLoadHydrationState() {
 	ctx := s.T().Context()
-	conn, err := s.replayenginedb.getConn(ctx)
+	conn, err := s.replayEngineDB.GetConn(ctx)
 	s.Require().NoError(err)
 
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
 	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
 	s.Require().NoError(err)
 
-	res, err := s.replayenginedb.LoadHydrationState(ctx)
+	res, err := s.replayEngineDB.LoadHydrationState(ctx)
 	s.Require().NoError(err)
 	s.Assert().Len(res, 1)
 	expected := common.HydrationStatusRow{

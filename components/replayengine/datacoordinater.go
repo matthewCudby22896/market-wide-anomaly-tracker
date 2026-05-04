@@ -38,7 +38,7 @@ type dataCoordinator struct {
 	wg        sync.WaitGroup
 	logger    *Logger
 
-	database      db.ReplayEngineDB
+	database      *db.ReplayEngineDB
 	massiveClient *massiveClient
 
 	// Internal state
@@ -67,7 +67,7 @@ type hydrationFailure struct {
 	Date   civil.Date
 }
 
-func NewDataCoordinator(database db.ReplayEngineDB) *dataCoordinator {
+func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &dataCoordinator{
 		ID:            dataCoordinatorID,
