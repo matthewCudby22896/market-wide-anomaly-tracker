@@ -29,18 +29,18 @@ func createMigrationsTable(ctx context.Context, conn *pgxpool.Conn) error {
 //go:embed migrations/*.sql
 var migrationsFiles embed.FS
 
-func (db *database) RequireApplyMigrations() {
-	err := db.applyMigrations()
+func (db *ReplayEngineDB) RequireApplyMigrations() {
+	err := db.ApplyMigrations()
 	if err != nil {
 		log.Fatalf("Failed to apply migrations: %s", err)
 	}
 }
 
 // TODO: Look into migration hash chains more
-func (db *database) applyMigrations() error {
+func (db *ReplayEngineDB) ApplyMigrations() error {
 	ctx := context.WithoutCancel(context.Background())
 
-	conn, err := db.getConn(ctx)
+	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w ", err)
 	}

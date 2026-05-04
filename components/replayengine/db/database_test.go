@@ -1,43 +1,54 @@
-package db
+package db_test
 
 import (
 	"context"
 	"slices"
-
 	"testing"
 
 	"cloud.google.com/go/civil"
-	testutils "github.com/mcudby/mwat/common/testing"
-	"github.com/mcudby/mwat/components/replayengine/common"
 
+	"github.com/mcudby/mwat/components/replayengine/common"
+	"github.com/mcudby/mwat/test/replayengine/utils"
+	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
+)
+
+const (
+	PostgresDB       = "postgres"
+	PostgresPassword = "password"
 )
 
 type databaseTestSuite struct {
 	suite.Suite
-	testutils.DatabaseSuite
+	database utils.TestTimescaleDB
 
-	container testcontainers.Container
-	db        *database
+	replayEngineDB *db.ReplayEngineDB
 }
 
 func (s *databaseTestSuite) SetupSuite() {
-	s.DatabaseSuite.SetT(s.T())
-	s.DatabaseSuite.SetupSuite()
+	t := s.T()
+	s.database = *utils.RequireStartTimescaleDB(
+		t,
+		PostgresPassword,
+		PostgresDB,
+	)
 
-	s.db = RequireNewDatabase(s.DatabaseConnectionURI)
-	s.db.RequireApplyMigrations()
+	cleanup := func() {
+		err := s.database.Cancel()
+		if err != nil {
+			t.Log(err)
+		}
+	}
+
+	t.Cleanup(cleanup)
+
+	s.replayEngineDB = db.RequireNewDatabase(s.database.GetConnectionURI())
+	s.replayEngineDB.RequireApplyMigrations()
 }
 
-func (s *databaseTestSuite) TearDownSuite() {
-	s.DatabaseSuite.TearDownSuite()
+func (s *databaseTestSuite) SetupTest() {
+	s.database.RequireClearDatabase()
 }
-
-func (s *databaseTestSuite) TearDownTest() {
-	s.RequireClearDatabase()
-}
-
 func (s *databaseTestSuite) TestBatchStoreBars() {
 	ctx := s.T().Context()
 	symbol := common.Symbol("RR")
@@ -61,10 +72,10 @@ func (s *databaseTestSuite) TestBatchStoreBars() {
 	}
 	slices.Reverse(bars)
 
-	err := s.db.BatchStoreBars(context.Background(), bars, symbol, date)
+	err := s.replayEngineDB.StoreSeries(context.Background(), bars, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.db.GetCompleteTradingDay(ctx, symbol, date)
+	retBars, err := s.replayEngineDB.GetSeries(ctx, symbol, date)
 
 	s.Require().NoError(err)
 	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
@@ -72,14 +83,14 @@ func (s *databaseTestSuite) TestBatchStoreBars() {
 
 func (s *databaseTestSuite) TestLoadHydrationState() {
 	ctx := s.T().Context()
-	conn, err := s.db.getConn(ctx)
+	conn, err := s.replayEngineDB.GetConn(ctx)
 	s.Require().NoError(err)
 
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
 	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
 	s.Require().NoError(err)
 
-	res, err := s.db.LoadHydrationState(ctx)
+	res, err := s.replayEngineDB.LoadHydrationState(ctx)
 	s.Require().NoError(err)
 	s.Assert().Len(res, 1)
 	expected := common.HydrationStatusRow{

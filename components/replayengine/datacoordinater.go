@@ -38,7 +38,7 @@ type dataCoordinator struct {
 	wg        sync.WaitGroup
 	logger    *Logger
 
-	database      db.Database
+	database      *db.ReplayEngineDB
 	massiveClient *massiveClient
 
 	// Internal state
@@ -67,7 +67,7 @@ type hydrationFailure struct {
 	Date   civil.Date
 }
 
-func NewDataCoordinator(database db.Database) *dataCoordinator {
+func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &dataCoordinator{
 		ID:            dataCoordinatorID,
@@ -181,7 +181,7 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbo
 		return fmt.Errorf("symbol hydration failed for `%s-%s`: %w", symbol, date, err)
 	}
 
-	err = c.database.BatchStoreBars(ctx, bars, symbol, date)
+	err = c.database.StoreSeries(ctx, bars, symbol, date)
 	if err != nil {
 		return fmt.Errorf("failed to store series for `%s-%s`: %w", symbol, date, err)
 	}
@@ -211,7 +211,7 @@ func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 		c.outbox <- hydrationFailure{symbol, date}
 	}
 
-	err = c.database.BatchStoreBars(ctx, bars, symbol, date)
+	err = c.database.StoreSeries(ctx, bars, symbol, date)
 	if err != nil {
 		c.logger.Fatal(
 			"failed to store fetched ohlc bars",

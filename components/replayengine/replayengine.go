@@ -12,7 +12,7 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
-type ReplayEnginerServer interface {
+type ReplayEngineServer interface {
 	LifeCycle
 }
 

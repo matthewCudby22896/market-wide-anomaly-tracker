@@ -28,10 +28,10 @@ type symbolThread struct {
 	logger    *Logger
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
-	db        db.Database
+	db        *db.ReplayEngineDB
 }
 
-func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db db.Database) *symbolThread {
+func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db *db.ReplayEngineDB) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	id := fmt.Sprintf("%s-%s", symbol, date.String())
@@ -72,7 +72,7 @@ func (t *symbolThread) Start() {
 		defer t.wg.Done()
 
 		// Currently returns in DESC order
-		series, err := t.db.GetCompleteTradingDay(t.Ctx, t.symbol, t.Date)
+		series, err := t.db.GetSeries(t.Ctx, t.symbol, t.Date)
 		if err != nil {
 			t.logger.Error("failed to fetch data for symbol", "symbol", t.symbol, "error", err)
 			t.Shutdown()
@@ -84,6 +84,7 @@ func (t *symbolThread) Start() {
 
 		// Trim out-of-date bars
 		for i := len(series) - 1; i >= 0; i-- {
+			// t.logger.Info("\n", "series[i].T", series[i].T, "tick", tick, "i", i)
 			if series[i].T >= tick {
 				series = series[:i+1]
 				break

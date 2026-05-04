@@ -1,31 +1,31 @@
 ### market-wide-anomaly-tracker
 
 ```
-{"action":"subscribe","symbols":["TSLA"]}
+{"action":"sub","symbols":["TSLA"]}
 ```
 ```
-{"action":"unsubscribe","symbols":["TSLA"]}
-```
-
-```
-{"action":"subscribe","symbols":["NVDA"]}
-```
-```
-{"action":"unsubscribe","symbols":["NVDA"]}
+{"action":"unsub","symbols":["TSLA"]}
 ```
 
 ```
-{"action":"subscribe","symbols":["AMZN"]}
+{"action":"sub","symbols":["NVDA"]}
 ```
 ```
-{"action":"unsubscribe","symbols":["AMZN"]}
+{"action":"unsub","symbols":["NVDA"]}
+```
+
+```
+{"action":"sub","symbols":["AMZN"]}
+```
+```
+{"action":"unsub","symbols":["AMZN"]}
 ```
 **Timestream**
 ```
-{"action":"subscribe","symbols":["TIMESTREAM"]}
+{"action":"sub","symbols":["TIMESTREAM"]}
 ```
 ```
-{"action":"unsubscribe","symbols":["TIMESTREAM"]}
+{"action":"unsub","symbols":["TIMESTREAM"]}
 ```
 
 
@@ -39,6 +39,10 @@ websocat -v ws://localhost:8080/ws
 Clear timescale db
 ```
 sudo docker rm -f timescaledb
+```
+Clear all docker containers
+```
+sudo docker rm -f $(docker ps -aq)
 ```
 Start timescale db
 ```

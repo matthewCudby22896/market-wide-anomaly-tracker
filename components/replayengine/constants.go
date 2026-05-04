@@ -2,10 +2,9 @@ package replayengine
 
 import "github.com/mcudby/mwat/components/replayengine/common"
 
-
-type Message struct {
-	Action  string   `json:"action"`
-	Symbols []string `json:"symbols"`
+type SubscriptionRequest struct {
+	Action  string   `json:"action"`  // "sub" or "unsub"
+	Symbols []string `json:"symbols"` // e.g., ["QQQ", "SPY"]
 }
 
 type BroadcastMessage struct {

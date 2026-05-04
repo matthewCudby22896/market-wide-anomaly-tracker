@@ -100,7 +100,7 @@ type hub struct {
 
 	DataCoordinator
 	Clock
-	Database db.Database
+	Database *db.ReplayEngineDB
 }
 
 type simulationSettings struct {
@@ -110,12 +110,12 @@ type simulationSettings struct {
 
 func defaultSimulationSettings() simulationSettings {
 	return simulationSettings{
-		Timescale: DEFAULT_TIMESCALE,
-		Date:      DEFAULT_DAY,
+		Timescale: DefaultTimescale,
+		Date:      DefaultDay,
 	}
 }
 
-func NewHub(database db.Database) *hub {
+func NewHub(database *db.ReplayEngineDB) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := defaultSimulationSettings()
@@ -360,12 +360,12 @@ func (h *hub) handleSub(req subRequest) {
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
-			if h.DataCoordinator.IsReady(symbol, DEFAULT_DAY) {
+			if h.DataCoordinator.IsReady(symbol, h.settings.Date) {
 
 				// If ready, notify main loop
 				h.dataInfoInbox <- hydrationSuccess{
 					Symbol: symbol,
-					Date:   DEFAULT_DAY,
+					Date:   h.settings.Date,
 				}
 			}
 

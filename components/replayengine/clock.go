@@ -21,7 +21,7 @@ type Clock interface {
 	UpdateClockSettings(speedup float32, date civil.Date)
 }
 
-// TODO: think more carefully about the use of sync.Mutex here
+// todo: think more carefully about the use of sync.Mutex here
 // Can likely be simplified
 type clock struct {
 	Ctx       context.Context
@@ -66,7 +66,7 @@ func NewClock(day civil.Date, speedup float32) *clock {
 		wg:               sync.WaitGroup{},
 		logger:           NewComponentLogger(clockID),
 		clockSettings:    settings,
-		isPaused:         false, // Init as un-paused for now
+		isPaused:         true, // Init in paused state
 		subscribers:      make(map[chan<- int64]struct{}),
 		timestreamOutbox: nil, // Initialised post-hox, by parent
 	}
@@ -88,7 +88,7 @@ func (c *clock) Start() {
 
 		c.globalTime = c.clockSettings.startTime
 
-		// Init Ticker
+		// Init ticker
 		c.SetTicker()
 
 		for {
@@ -107,7 +107,6 @@ func (c *clock) Start() {
 					c.isPausedMu.Unlock()
 					continue
 				}
-				c.globalTime += 1000
 				c.isPausedMu.Unlock()
 
 				c.subscribersMu.Lock()
@@ -120,6 +119,8 @@ func (c *clock) Start() {
 					}
 				}
 				c.subscribersMu.Unlock()
+
+				c.globalTime += 1000
 			}
 		}
 	}()

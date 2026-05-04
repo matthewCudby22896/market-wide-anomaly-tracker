@@ -13,28 +13,29 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-type Database interface {
-	BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error
-	GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
-	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
-}
+// type ReplayEngineDB interface {
+// 	StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error
+// 	GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error)
+// 	LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error)
+// 	ApplyMigrations() error
+// }
 
 // Implements the Database interface
-type database struct {
+type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
 }
 
 var once sync.Once
 
-func RequireNewDatabase(connString string) *database {
-	var db *database
+func RequireNewDatabase(connectionURI string) *ReplayEngineDB {
+	var db *ReplayEngineDB
 	once.Do(func() {
-		pool, err := pgxpool.New(context.Background(), connString)
+		pool, err := pgxpool.New(context.Background(), connectionURI)
 		if err != nil {
 			log.Fatalf("Failed to init database: %#v", err)
 		}
 
-		db = &database{
+		db = &ReplayEngineDB{
 			connPool: pool,
 		}
 	})
@@ -45,15 +46,15 @@ func RequireNewDatabase(connString string) *database {
 	return db
 }
 
-func (db *database) getConn(ctx context.Context) (*pgxpool.Conn, error) {
+func (db *ReplayEngineDB) GetConn(ctx context.Context) (*pgxpool.Conn, error) {
 	conn, err := db.connPool.Acquire(ctx)
 	return conn, err
 }
 
 // Note - future optimisation: This could likely be quicker if I implement the
 // CopyFromSource interface (to avoid buffering in memory)
-func (db *database) BatchStoreBars(ctx context.Context, bars common.Series, symbol common.Symbol, date civil.Date) error {
-	conn, err := db.getConn(ctx)
+func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error {
+	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
 	}
@@ -68,14 +69,14 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.Series, symb
 	n, err := tx.CopyFrom(
 		ctx,
 		pgx.Identifier{"bars_1sec"},
-		bars.ColNames(),
-		pgx.CopyFromRows(bars.ToRows()),
+		series.ColNames(),
+		pgx.CopyFromRows(series.ToRows()),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to bulk insert: %w", err)
 	}
-	if n != int64(len(bars)) {
-		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(bars))
+	if n != int64(len(series)) {
+		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(series))
 	}
 
 	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
@@ -86,7 +87,7 @@ func (db *database) BatchStoreBars(ctx context.Context, bars common.Series, symb
 	return nil
 }
 
-func (db *database) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol common.Symbol, date civil.Date) error {
+func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol common.Symbol, date civil.Date) error {
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
 	_, err := tx.Exec(ctx, stmt, symbol, date.String())
 	if err != nil {
@@ -95,9 +96,8 @@ func (db *database) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx
 	return nil
 }
 
-// TODO: Rename
-func (db *database) GetCompleteTradingDay(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
-	conn, err := db.getConn(ctx)
+func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
+	conn, err := db.GetConn(ctx)
 	defer conn.Release()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
@@ -138,8 +138,8 @@ func (db *database) GetCompleteTradingDay(ctx context.Context, symbol common.Sym
 	return bars, nil
 }
 
-func (db *database) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
-	conn, err := db.getConn(ctx)
+func (db *ReplayEngineDB) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
+	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}

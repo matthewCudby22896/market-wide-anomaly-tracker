@@ -13,7 +13,7 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-type settingsPayload struct {
+type ReplayEngineSettings struct {
 	Timescale      float32 `json:"timescale"`
 	SimulationDate string  `json:"simulation-date"`
 }
@@ -66,7 +66,7 @@ func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Reques
 func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		payload := settingsPayload{}
+		payload := ReplayEngineSettings{}
 		err := Decode(r.Body, &payload)
 		if err != nil {
 			err := fmt.Errorf("failed to marshal request body: %w", err)
@@ -81,7 +81,6 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 			s.logger.Info("failed to update settings", "error", err)
 			errorWithMsg(w, err.Error(), http.StatusBadRequest)
 			return
-
 		}
 		s.Hub.SetSimulationSettings(settings)
 
@@ -91,7 +90,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		settings := s.Hub.GetSimulationSettings()
 
-		payload := settingsPayload{
+		payload := ReplayEngineSettings{
 			Timescale:      settings.Timescale,
 			SimulationDate: settings.Date.String(),
 		}
@@ -106,7 +105,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func validateSettings(payload settingsPayload) (*simulationSettings, error) {
+func validateSettings(payload ReplayEngineSettings) (*simulationSettings, error) {
 	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
 		return nil, err

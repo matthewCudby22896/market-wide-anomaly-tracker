@@ -84,7 +84,7 @@ func (c *client) Start() {
 func (c *client) ListenerThread() {
 	defer c.wg.Done()
 	for {
-		var v Message
+		var v SubscriptionRequest
 		err := wsjson.Read(c.context, c.connection, &v)
 
 		if err != nil {
@@ -99,9 +99,9 @@ func (c *client) ListenerThread() {
 		}
 
 		switch v.Action {
-		case "subscribe":
+		case "sub":
 			c.hubRequestOutbox <- subRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
-		case "unsubscribe":
+		case "unsub":
 			c.hubRequestOutbox <- unsubRequest{BaseRequest{c}, toTypedTicker(v.Symbols)}
 		default:
 			c.logger.Info("unrecognised `action` field", "action", v.Action)
