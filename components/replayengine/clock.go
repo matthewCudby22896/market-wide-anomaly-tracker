@@ -52,7 +52,11 @@ type Tick struct {
 	Tick string `json:"tick"`
 }
 
-func NewClock(day civil.Date, speedup float32) *clock {
+func NewClock(
+	day civil.Date,
+	speedup float32,
+	timestreamOutbox chan<- Tick,
+) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	settings := clockSettings{
@@ -68,7 +72,7 @@ func NewClock(day civil.Date, speedup float32) *clock {
 		clockSettings:    settings,
 		isPaused:         true, // Init in paused state
 		subscribers:      make(map[chan<- int64]struct{}),
-		timestreamOutbox: nil, // Initialised post-hox, by parent
+		timestreamOutbox: timestreamOutbox,
 	}
 }
 

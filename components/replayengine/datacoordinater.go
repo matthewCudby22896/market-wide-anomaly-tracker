@@ -47,7 +47,7 @@ type dataCoordinator struct {
 
 	// Internal channels
 	dataQueryChan chan dataQuery
-	outbox        chan any
+	outbox        chan<- any
 }
 
 // Structs for internal use:
@@ -67,8 +67,9 @@ type hydrationFailure struct {
 	Date   civil.Date
 }
 
-func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
+func NewDataCoordinator(database *db.ReplayEngineDB, outbox chan<- any) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &dataCoordinator{
 		ID:            dataCoordinatorID,
 		Ctx:           ctx,
@@ -80,7 +81,7 @@ func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
 		statusMapMu:   sync.Mutex{},
 		statusMap:     make(map[string]map[common.Symbol]DataAvailability),
 		dataQueryChan: make(chan dataQuery, 1024),
-		outbox:        nil, // Assigned post-hoc (by parent)
+		outbox:        outbox,
 	}
 }
 

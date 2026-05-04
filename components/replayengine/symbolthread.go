@@ -10,6 +10,10 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
+const (
+	bufferSize = 500
+)
+
 type SymbolThread interface {
 	LifeCycle
 	AsyncShutdown()
@@ -29,9 +33,15 @@ type symbolThread struct {
 	outbox    chan<- BroadcastMessage
 	ticks     chan int64
 	db        *db.ReplayEngineDB
+	getTime   func() int64
 }
 
-func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db *db.ReplayEngineDB) *symbolThread {
+func NewSymbolThread(
+	symbol common.Symbol, 
+	date civil.Date,
+	db *db.ReplayEngineDB,
+	outbox chan<- BroadcastMessage,
+) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	id := fmt.Sprintf("%s-%s", symbol, date.String())
@@ -46,7 +56,7 @@ func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db *db.Re
 		Date:      date,
 		ticks:     make(chan int64),
 		db:        db,
-		outbox:    nil, // Initialised post-hoc, by parent
+		outbox:    outbox, // Initialised post-hoc, by parent
 	}
 }
 
@@ -110,6 +120,22 @@ func (t *symbolThread) Start() {
 				}
 			}
 		}
+	}()
+}
+
+func (t *symbolThread) Start2() {
+	if t.outbox == nil {
+		t.logger.Fatal("failed to start symbol thread: t.outbox was nil")
+	}
+
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+
+		// buffer1 := make([]common.Bar, bufferSize)
+		// buffer2 := make([]common.Bar, bufferSize)
+
+		// Need to somehow get current time
 	}()
 }
 

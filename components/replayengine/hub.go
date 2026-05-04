@@ -66,16 +66,6 @@ type Hub interface {
 	SetSimulationSettings(newSettings *simulationSettings)
 }
 
-/*
-Settings:
-
-- Do I need a mutex?
-- Getting is simple
-
-Setting Settings:
-- Should implicitly restart the simulation
-*/
-
 // hub implements the Hub interface
 type hub struct {
 	ID           string
@@ -86,9 +76,9 @@ type hub struct {
 	settingsLock sync.Mutex
 	settings     simulationSettings
 
-	clientRequestInbox chan ClientRequest
-	broadcastInbox     chan BroadcastMessage
-	dataInfoInbox      chan any
+	clientRequestInbox  chan ClientRequest
+	broadcastInbox      chan BroadcastMessage
+	hydrationStateInbox chan any
 
 	clients               map[*client]struct{}
 	symbolToClient        map[common.Symbol]map[*client]struct{}
@@ -96,7 +86,7 @@ type hub struct {
 	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
 
 	subbedToTimestream map[*client]struct{}
-	timeStreamInbox    <-chan Tick
+	timestreamInbox    <-chan Tick
 
 	DataCoordinator
 	Clock
@@ -120,22 +110,30 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 
 	settings := defaultSimulationSettings()
 
-	timeStreamChan := make(chan Tick, 1)
+	timestreamChan := make(chan Tick, 1)
+	hydrationStateChan := make(chan any, 1024)
 
 	// Init clock
-	clock := NewClock(settings.Date, settings.Timescale)
-	clock.timestreamOutbox = timeStreamChan
+	clock := NewClock(
+		settings.Date,
+		settings.Timescale,
+		timestreamChan,
+	)
 
+	// Init data coordinator
+	dataCoordinator := NewDataCoordinator(database, hydrationStateChan)
+
+	// Hub
 	h := &hub{
-		ID:                 hubID,
-		Ctx:                ctx,
-		CancelCtx:          cancel,
-		wg:                 sync.WaitGroup{},
-		logger:             NewComponentLogger(hubID),
-		settings:           settings,
-		clientRequestInbox: make(chan ClientRequest, 1024),
-		broadcastInbox:     make(chan BroadcastMessage, 1024),
-		dataInfoInbox:      make(chan any, 1024),
+		ID:                  hubID,
+		Ctx:                 ctx,
+		CancelCtx:           cancel,
+		wg:                  sync.WaitGroup{},
+		logger:              NewComponentLogger(hubID),
+		settings:            settings,
+		clientRequestInbox:  make(chan ClientRequest, 1024),
+		broadcastInbox:      make(chan BroadcastMessage, 1024),
+		hydrationStateInbox: hydrationStateChan,
 
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
@@ -143,14 +141,12 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 		symbolThreads:         make(map[common.Symbol]*symbolThread),
 
 		subbedToTimestream: make(map[*client]struct{}),
-		timeStreamInbox:    timeStreamChan,
+		timestreamInbox:    timestreamChan,
 
-		DataCoordinator: NewDataCoordinator(database),
+		DataCoordinator: dataCoordinator,
 		Clock:           clock,
 		Database:        database,
 	}
-
-	h.DataCoordinator.SetOutbox(h.dataInfoInbox)
 
 	return h
 }
@@ -210,7 +206,7 @@ func (h *hub) Start() {
 					h.handleUnsub(v)
 				}
 
-			case notification := <-h.dataInfoInbox:
+			case notification := <-h.hydrationStateInbox:
 				switch v := notification.(type) {
 				case hydrationSuccess:
 					h.logger.Info("hydration notification received", "notification", v)
@@ -231,7 +227,7 @@ func (h *hub) Start() {
 				default:
 					h.logger.Fatal("unrecognised notification received", "notification", v)
 				}
-			case tick := <-h.timeStreamInbox:
+			case tick := <-h.timestreamInbox:
 				for c := range h.subbedToTimestream {
 					c.outbox <- tick
 				}
@@ -363,7 +359,7 @@ func (h *hub) handleSub(req subRequest) {
 			if h.DataCoordinator.IsReady(symbol, h.settings.Date) {
 
 				// If ready, notify main loop
-				h.dataInfoInbox <- hydrationSuccess{
+				h.hydrationStateInbox <- hydrationSuccess{
 					Symbol: symbol,
 					Date:   h.settings.Date,
 				}
@@ -465,8 +461,12 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 	h.logger.LogStartChild(fmt.Sprintf("SymbolThread-%s", symbol))
 
 	// 1. Init symbol thread
-	thread := NewSymbolThread(h, symbol, date, h.Database)
-	thread.outbox = h.broadcastInbox
+	thread := NewSymbolThread(
+		symbol,
+		date,
+		h.Database,
+		h.broadcastInbox,
+	)
 
 	// 2. Register it with the clock s.t. it recieves ticks
 	h.Clock.RegisterPipe(thread.GetTickPipe())
