@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	_ "time/tzdata"
 
 	replayengine "github.com/mcudby/mwat/components/replayengine"
 )
