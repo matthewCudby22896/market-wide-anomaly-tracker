@@ -80,7 +80,7 @@ func (t *symbolThread) Start() {
 	go func() {
 		defer t.wg.Done()
 
-		t.logger.Debug("in main loop")
+		t.logger.Info("in main loop")
 
 		// Currently returns in DESC order
 		series, err := t.db.GetSeries(t.Ctx, t.symbol, t.Date)
@@ -90,12 +90,12 @@ func (t *symbolThread) Start() {
 			return
 		}
 
-		t.logger.Debug("before tick")
+		t.logger.Info("before tick")
 
 		// Wait for a tick
 		tick := <-t.tickInbox
 
-		t.logger.Debug("after tick")
+		t.logger.Info("after tick")
 
 		// Trim out-of-date bars
 		for i := len(series) - 1; i >= 0; i-- {
@@ -109,11 +109,11 @@ func (t *symbolThread) Start() {
 		for {
 			select {
 			case <-t.Ctx.Done():
-				t.logger.Debug("done")
+				t.logger.Info("done")
 				return
 
 			case tick = <-t.tickInbox:
-				t.logger.Debug("received tick", "tick", tick)
+				t.logger.Info("received tick", "tick", tick)
 
 				// Send all bars that occured before the tick
 				for len(series) > 0 && series[len(series)-1].T <= tick {

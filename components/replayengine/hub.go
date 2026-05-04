@@ -494,7 +494,7 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 	h.symbolThreads[symbol] = thread
 
 	// 4. Start the thread
-	thread.Start()
+	go thread.Start()
 
 	return thread
 }

@@ -45,7 +45,7 @@ func NewClock(
 
 	config := getSimulationConfig()
 
-	startTime := common.NYSECloseUnixMilli(config.Date)
+	startTime := common.NYSEOpenUnixMilli(config.Date)
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
 	ticker := time.NewTicker(time.Duration(interval))
 
@@ -121,7 +121,7 @@ func (c *clock) PullSettingsAndReset() {
 	defer c.isPausedMu.Unlock()
 
 	config := c.getSimulationConfig()
-	c.startTime = common.NYSECloseUnixMilli(config.Date)
+	c.startTime = common.NYSEOpenUnixMilli(config.Date)
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
 	c.t = time.NewTicker(time.Duration(interval))
 }
