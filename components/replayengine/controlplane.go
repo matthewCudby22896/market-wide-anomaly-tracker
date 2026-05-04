@@ -105,20 +105,18 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func validateSettings(payload ReplayEngineSettings) (*simulationSettings, error) {
+func validateSettings(payload ReplayEngineSettings) (SimulationConfig, error) {
 	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
-		return nil, err
+		return SimulationConfig{}, err
 	}
 
 	timescale, err := validateTimeScale(payload.Timescale)
 	if err != nil {
-		return nil, err
+		return SimulationConfig{}, err
 	}
 
-	settings := &simulationSettings{timescale, date}
-
-	return settings, nil
+	return SimulationConfig{timescale, date}, nil
 }
 
 func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Request) {

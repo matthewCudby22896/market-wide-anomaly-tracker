@@ -5,47 +5,32 @@ import (
 	"sync"
 	"time"
 
-	"cloud.google.com/go/civil"
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 const clockID = "clock"
 
-type Clock interface {
-	LifeCycle
-	RegisterPipe(chan<- int64)
-	Pause()
-	Resume()
-	IsPaused() bool
-	ResetState()
-	UpdateClockSettings(speedup float32, date civil.Date)
-}
-
 // todo: think more carefully about the use of sync.Mutex here
 // Can likely be simplified
 type clock struct {
-	Ctx       context.Context
-	CancelCtx context.CancelFunc
+	ctx       context.Context
+	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 	logger    *Logger
-	clockSettings
 
 	isPausedMu sync.Mutex
 	isPaused   bool
 
-	globalTime int64 // Unix Milli
-	interval   time.Duration
-	t          *time.Ticker
+	startTime      int64 // Unix Milli
+	simulationTime int64 // Unix Milli
+	t              *time.Ticker
 
 	subscribersMu sync.Mutex
 	subscribers   map[chan<- int64]struct{}
 
-	timestreamOutbox chan<- Tick
-}
-
-type clockSettings struct {
-	startTime int64 // Unix Milli
-	timescale float32
+	// i.o.
+	timestreamOutbox    chan<- Tick
+	getSimulationConfig func() SimulationConfig
 }
 
 type Tick struct {
@@ -53,32 +38,36 @@ type Tick struct {
 }
 
 func NewClock(
-	day civil.Date,
-	speedup float32,
 	timestreamOutbox chan<- Tick,
+	getSimulationConfig func() SimulationConfig,
 ) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	settings := clockSettings{
-		startTime: common.NYSEOpenUnixMilli(day),
-		timescale: speedup,
-	}
+	config := getSimulationConfig()
+
+	startTime := common.NYSECloseUnixMilli(config.Date)
+	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
+	ticker := time.NewTicker(time.Duration(interval))
 
 	return &clock{
-		Ctx:              ctx,
-		CancelCtx:        cancel,
-		wg:               sync.WaitGroup{},
-		logger:           NewComponentLogger(clockID),
-		clockSettings:    settings,
-		isPaused:         true, // Init in paused state
-		subscribers:      make(map[chan<- int64]struct{}),
-		timestreamOutbox: timestreamOutbox,
-	}
-}
+		ctx:       ctx,
+		cancelCtx: cancel,
+		wg:        sync.WaitGroup{},
+		logger:    NewComponentLogger(clockID),
 
-func (c *clock) SetTicker() {
-	c.interval = time.Duration(float64(time.Second) / float64(c.timescale)) // int64
-	c.t = time.NewTicker(time.Duration(c.interval))
+		isPausedMu: sync.Mutex{},
+		isPaused:   true, // Init in paused state
+
+		startTime:      startTime,
+		simulationTime: startTime,
+		t:              ticker,
+
+		subscribersMu: sync.Mutex{},
+		subscribers:   make(map[chan<- int64]struct{}),
+
+		timestreamOutbox:    timestreamOutbox,
+		getSimulationConfig: getSimulationConfig,
+	}
 }
 
 func (c *clock) Start() {
@@ -90,17 +79,12 @@ func (c *clock) Start() {
 	go func() {
 		defer c.wg.Done()
 
-		c.globalTime = c.clockSettings.startTime
-
-		// Init ticker
-		c.SetTicker()
-
 		for {
 			select {
-			case <-c.Ctx.Done():
+			case <-c.ctx.Done():
 				return
 			case <-c.t.C:
-				ts := common.UnixMilliToTimestampNYC(c.globalTime)
+				ts := common.UnixMilliToTimestampNYC(c.simulationTime)
 				select { // Non-blocking send
 				case c.timestreamOutbox <- Tick{ts}:
 				default:
@@ -117,31 +101,33 @@ func (c *clock) Start() {
 				for pipe := range c.subscribers {
 					// Non-blocking send
 					select {
-					case pipe <- c.globalTime:
+					case pipe <- c.simulationTime:
 					default:
 						// Do nothing
 					}
 				}
 				c.subscribersMu.Unlock()
 
-				c.globalTime += 1000
+				c.simulationTime += 1000
 			}
 		}
 	}()
 	c.logger.LogStart()
 }
 
-func (c *clock) ResetState() {
+func (c *clock) PullSettingsAndReset() {
 	// Attaining this lock essentially pauses the clock
 	c.isPausedMu.Lock()
 	defer c.isPausedMu.Unlock()
 
-	c.SetTicker()
-	c.globalTime = c.clockSettings.startTime
+	config := c.getSimulationConfig()
+	c.startTime = common.NYSECloseUnixMilli(config.Date)
+	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
+	c.t = time.NewTicker(time.Duration(interval))
 }
 
 func (c *clock) Shutdown() {
-	c.CancelCtx()
+	c.cancelCtx()
 	c.wg.Wait()
 	c.logger.LogShutdown()
 }
@@ -168,11 +154,4 @@ func (c *clock) IsPaused() bool {
 	c.isPausedMu.Lock()
 	defer c.isPausedMu.Unlock()
 	return c.isPaused
-}
-
-func (c *clock) UpdateClockSettings(timescale float32, date civil.Date) {
-	c.clockSettings = clockSettings{
-		startTime: common.NYSEOpenUnixMilli(date),
-		timescale: timescale,
-	}
 }

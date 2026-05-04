@@ -62,23 +62,22 @@ type Hub interface {
 	ResumeSimulation()
 	RestartSimulation()
 	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
-	GetSimulationSettings() simulationSettings
-	SetSimulationSettings(newSettings *simulationSettings)
+	GetSimulationSettings() SimulationConfig
+	SetSimulationSettings(newSettings SimulationConfig)
 }
 
 // hub implements the Hub interface
 type hub struct {
-	ID           string
-	Ctx          context.Context
-	CancelCtx    context.CancelFunc
-	wg           sync.WaitGroup
-	logger       *Logger
-	settingsLock sync.Mutex
-	settings     simulationSettings
+	id        string
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+	wg        sync.WaitGroup
+	logger    *Logger
+	config    *configWrapper
 
-	clientRequestInbox  chan ClientRequest
-	broadcastInbox      chan BroadcastMessage
-	hydrationStateInbox chan any
+	clientRequestInbox chan ClientRequest
+	broadcastInbox     chan BroadcastMessage
+	hydrationStatePipe chan any
 
 	clients               map[*client]struct{}
 	symbolToClient        map[common.Symbol]map[*client]struct{}
@@ -89,35 +88,54 @@ type hub struct {
 	timestreamInbox    <-chan Tick
 
 	DataCoordinator
-	Clock
+	clock    *clock
 	Database *db.ReplayEngineDB
 }
 
-type simulationSettings struct {
+type SimulationConfig struct {
 	Timescale float32
 	Date      civil.Date
 }
 
-func defaultSimulationSettings() simulationSettings {
-	return simulationSettings{
-		Timescale: DefaultTimescale,
-		Date:      DefaultDay,
+type configWrapper struct {
+	lock   sync.Mutex
+	config SimulationConfig
+}
+
+func defaultSimulationConfig() *configWrapper {
+	return &configWrapper{
+		lock: sync.Mutex{},
+		config: SimulationConfig{
+			Timescale: DefaultTimescale,
+			Date:      DefaultDay,
+		},
 	}
+}
+
+func (s *configWrapper) GetConfig() SimulationConfig {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.config
+}
+
+func (s *configWrapper) SetConfig(newConfig SimulationConfig) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.config = newConfig
 }
 
 func NewHub(database *db.ReplayEngineDB) *hub {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	settings := defaultSimulationSettings()
+	config := defaultSimulationConfig()
 
 	timestreamChan := make(chan Tick, 1)
 	hydrationStateChan := make(chan any, 1024)
 
 	// Init clock
 	clock := NewClock(
-		settings.Date,
-		settings.Timescale,
 		timestreamChan,
+		config.GetConfig,
 	)
 
 	// Init data coordinator
@@ -125,15 +143,15 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 
 	// Hub
 	h := &hub{
-		ID:                  hubID,
-		Ctx:                 ctx,
-		CancelCtx:           cancel,
-		wg:                  sync.WaitGroup{},
-		logger:              NewComponentLogger(hubID),
-		settings:            settings,
-		clientRequestInbox:  make(chan ClientRequest, 1024),
-		broadcastInbox:      make(chan BroadcastMessage, 1024),
-		hydrationStateInbox: hydrationStateChan,
+		id:                 hubID,
+		ctx:                ctx,
+		cancelCtx:          cancel,
+		wg:                 sync.WaitGroup{},
+		logger:             NewComponentLogger(hubID),
+		config:             config,
+		clientRequestInbox: make(chan ClientRequest, 1024),
+		broadcastInbox:     make(chan BroadcastMessage, 1024),
+		hydrationStatePipe: hydrationStateChan,
 
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
@@ -144,14 +162,14 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 		timestreamInbox:    timestreamChan,
 
 		DataCoordinator: dataCoordinator,
-		Clock:           clock,
+		clock:           clock,
 		Database:        database,
 	}
 
 	return h
 }
 
-func (h *hub) GetID() string { return h.ID }
+func (h *hub) GetID() string { return h.id }
 
 func (h *hub) Shutdown() {
 	// Shutdown all child components:
@@ -173,7 +191,7 @@ func (h *hub) Shutdown() {
 	}
 
 	// Shutdown self
-	h.CancelCtx()
+	h.cancelCtx()
 	h.wg.Wait()
 	h.logger.LogShutdown()
 }
@@ -181,14 +199,14 @@ func (h *hub) Shutdown() {
 func (h *hub) Start() {
 	h.logger.LogStartChild(h.DataCoordinator.GetID())
 	h.DataCoordinator.Start()
-	h.Clock.Start()
+	h.clock.Start()
 
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
 		for {
 			select {
-			case <-h.Ctx.Done():
+			case <-h.ctx.Done():
 				return
 
 			case msg := <-h.broadcastInbox:
@@ -206,7 +224,7 @@ func (h *hub) Start() {
 					h.handleUnsub(v)
 				}
 
-			case notification := <-h.hydrationStateInbox:
+			case notification := <-h.hydrationStatePipe:
 				switch v := notification.(type) {
 				case hydrationSuccess:
 					h.logger.Info("hydration notification received", "notification", v)
@@ -248,24 +266,25 @@ func (h *hub) RegisterClient(c *client) {
 }
 
 func (h *hub) PauseSimulation() {
-	h.Clock.Pause()
+	h.clock.Pause()
 }
 
 func (h *hub) ResumeSimulation() {
-	h.Clock.Resume()
+	h.clock.Resume()
 }
 
 func (h *hub) RestartSimulation() {
-	wasPaused := h.Clock.IsPaused()
-	h.Clock.Pause()
-	h.Clock.ResetState()
+	wasPaused := h.clock.IsPaused()
 
+	h.clock.Pause()
+	h.clock.PullSettingsAndReset()
 	h.restartSymbolThreads()
 
-	if wasPaused && !h.Clock.IsPaused() {
-		h.Clock.Pause()
-	} else if !wasPaused && h.Clock.IsPaused() {
-		h.Clock.Resume()
+	// todo: simplify
+	if wasPaused && !h.clock.IsPaused() {
+		h.clock.Pause()
+	} else if !wasPaused && h.clock.IsPaused() {
+		h.clock.Resume()
 	}
 }
 
@@ -273,28 +292,24 @@ func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civi
 	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
 }
 
-func (h *hub) GetSimulationSettings() simulationSettings {
-	h.settingsLock.Lock()
-	defer h.settingsLock.Unlock()
-	return h.settings
+func (h *hub) GetSimulationSettings() SimulationConfig {
+	return h.config.GetConfig()
 }
 
-func (h *hub) SetSimulationSettings(settings *simulationSettings) {
-	h.settingsLock.Lock()
-	h.settings = *settings
-	h.settingsLock.Unlock()
+func (h *hub) SetSimulationSettings(newConfig SimulationConfig) {
+	h.config.SetConfig(newConfig)
 
-	wasPaused := h.Clock.IsPaused()
-	h.Clock.Pause()
-	h.Clock.UpdateClockSettings(settings.Timescale, settings.Date)
-	h.Clock.ResetState()
+	wasPaused := h.clock.IsPaused()
 
+	h.clock.Pause()
+	h.clock.PullSettingsAndReset()
 	h.restartSymbolThreads()
 
-	if wasPaused && !h.Clock.IsPaused() {
-		h.Clock.Pause()
-	} else if !wasPaused && h.Clock.IsPaused() {
-		h.Clock.Resume()
+	// todo: simplify
+	if wasPaused && !h.clock.IsPaused() {
+		h.clock.Pause()
+	} else if !wasPaused && h.clock.IsPaused() {
+		h.clock.Resume()
 	}
 }
 
@@ -346,6 +361,7 @@ func (h *hub) unsubToTimestream(c *client) {
 
 func (h *hub) handleSub(req subRequest) {
 	c := req.Sender
+	date := h.config.GetConfig().Date
 
 	for _, symbol := range req.symbols {
 		if symbol == TIMESTREAM {
@@ -356,12 +372,12 @@ func (h *hub) handleSub(req subRequest) {
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
-			if h.DataCoordinator.IsReady(symbol, h.settings.Date) {
+			if h.DataCoordinator.IsReady(symbol, date) {
 
 				// If ready, notify main loop
-				h.hydrationStateInbox <- hydrationSuccess{
+				h.hydrationStatePipe <- hydrationSuccess{
 					Symbol: symbol,
-					Date:   h.settings.Date,
+					Date:   date,
 				}
 			}
 
@@ -469,7 +485,7 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 	)
 
 	// 2. Register it with the clock s.t. it recieves ticks
-	h.Clock.RegisterPipe(thread.GetTickPipe())
+	h.clock.RegisterPipe(thread.GetTickPipe())
 
 	// 3. Keep ref in map
 	h.symbolThreads[symbol] = thread
