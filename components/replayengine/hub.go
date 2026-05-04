@@ -361,7 +361,7 @@ func (h *hub) unsubToTimestream(c *client) {
 
 func (h *hub) handleSub(req subRequest) {
 	c := req.Sender
-	date := h.config.GetConfig().Date
+	// date :=
 
 	for _, symbol := range req.symbols {
 		if symbol == TIMESTREAM {
@@ -372,12 +372,12 @@ func (h *hub) handleSub(req subRequest) {
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
-			if h.DataCoordinator.IsReady(symbol, date) {
+			if h.DataCoordinator.IsReady(symbol, h.config.GetConfig().Date) {
 
 				// If ready, notify main loop
 				h.hydrationStatePipe <- hydrationSuccess{
 					Symbol: symbol,
-					Date:   date,
+					Date:   h.config.GetConfig().Date,
 				}
 			}
 
@@ -463,7 +463,6 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 
 	delete(h.clients, c)
 	h.logger.Info("client unregistered from hub", "client-id", c.ID, "client-count", len(h.clients))
-
 }
 
 func (h *hub) killSymbolThread(symbol common.Symbol) {
@@ -474,7 +473,10 @@ func (h *hub) killSymbolThread(symbol common.Symbol) {
 }
 
 func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolThread {
+	h.logger.Info("StartTickerThread()!")
 	h.logger.LogStartChild(fmt.Sprintf("SymbolThread-%s", symbol))
+
+	tickPipe := make(chan int64)
 
 	// 1. Init symbol thread
 	thread := NewSymbolThread(
@@ -482,10 +484,11 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 		date,
 		h.Database,
 		h.broadcastInbox,
+		tickPipe,
 	)
 
 	// 2. Register it with the clock s.t. it recieves ticks
-	h.clock.RegisterPipe(thread.GetTickPipe())
+	h.clock.RegisterPipe(tickPipe)
 
 	// 3. Keep ref in map
 	h.symbolThreads[symbol] = thread

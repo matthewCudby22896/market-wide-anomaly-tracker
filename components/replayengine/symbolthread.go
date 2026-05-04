@@ -17,7 +17,6 @@ const (
 type SymbolThread interface {
 	LifeCycle
 	AsyncShutdown()
-	GetTickPipe() chan<- int64
 	SetOutbox(outbox chan<- BroadcastMessage)
 	Restart()
 }
@@ -31,7 +30,7 @@ type symbolThread struct {
 	Date      civil.Date
 	logger    *Logger
 	outbox    chan<- BroadcastMessage
-	ticks     chan int64
+	tickInbox <-chan int64
 	db        *db.ReplayEngineDB
 	getTime   func() int64
 }
@@ -41,6 +40,8 @@ func NewSymbolThread(
 	date civil.Date,
 	db *db.ReplayEngineDB,
 	outbox chan<- BroadcastMessage,
+	tickInbox <-chan int64,
+
 ) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -54,7 +55,7 @@ func NewSymbolThread(
 		logger:    NewComponentLogger(id),
 		symbol:    symbol,
 		Date:      date,
-		ticks:     make(chan int64),
+		tickInbox: tickInbox,
 		db:        db,
 		outbox:    outbox,
 	}
@@ -92,7 +93,7 @@ func (t *symbolThread) Start() {
 		t.logger.Debug("before tick")
 
 		// Wait for a tick
-		tick := <-t.ticks
+		tick := <-t.tickInbox
 
 		t.logger.Debug("after tick")
 
@@ -111,7 +112,7 @@ func (t *symbolThread) Start() {
 				t.logger.Debug("done")
 				return
 
-			case tick = <-t.ticks:
+			case tick = <-t.tickInbox:
 				t.logger.Debug("received tick", "tick", tick)
 
 				// Send all bars that occured before the tick
@@ -144,10 +145,6 @@ func (t *symbolThread) Start2() {
 
 		// Need to somehow get current time
 	}()
-}
-
-func (t *symbolThread) GetTickPipe() chan<- int64 {
-	return t.ticks
 }
 
 func (t *symbolThread) SetOutbox(outbox chan<- BroadcastMessage) {
