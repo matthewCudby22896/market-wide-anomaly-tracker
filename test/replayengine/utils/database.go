@@ -35,7 +35,7 @@ func RequireStartTimescaleDB(
 	os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	container, err := testcontainers.Run(
 		ctx,
-		"timescale/timescaledb-ha:pg18",
+		"timescale/timescaledb:latest-pg18",
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithEnv(map[string]string{
 			"POSTGRES_PASSWORD": postgresPassword,

@@ -14,12 +14,6 @@
 {"action":"unsub","symbols":["NVDA"]}
 ```
 
-```
-{"action":"sub","symbols":["AMZN"]}
-```
-```
-{"action":"unsub","symbols":["AMZN"]}
-```
 **Timestream**
 ```
 {"action":"sub","symbols":["TIMESTREAM"]}
@@ -29,13 +23,13 @@
 ```
 
 
-### Cmd Line Websocket Connection
+#### Cmd Line Websocket Connection
 Start websocket connection
 ```
 websocat -v ws://localhost:8080/ws
 ```
 
-### Local DB
+#### Local DB
 Clear timescale db
 ```
 sudo docker rm -f timescaledb
@@ -52,4 +46,19 @@ docker run -d --name timescaledb \
     timescale/timescaledb-ha:pg18
 ```
 
+#### Docker Commands
+General cmds
+```
+docker image ls
+```
+Build & run replayengine image
+```
+docker build . -t replayengine
+docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
+```
 
+#### Docker Compose
+```
+docker compose up
+docker compose up --build
+```
