@@ -3,6 +3,7 @@ package replayengine
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mcudby/mwat/components/replayengine/common"
@@ -18,15 +19,15 @@ type clock struct {
 	wg        sync.WaitGroup
 	logger    *Logger
 
-	isPausedMu sync.Mutex
-	isPaused   bool
-
+	isPaused       *atomic.Bool
 	startTime      int64 // Unix Milli
 	simulationTime int64 // Unix Milli
 	t              *time.Ticker
 
-	subscribersMu sync.Mutex
-	subscribers   map[chan<- int64]struct{}
+	isPausedChan chan bool
+	subChan      chan chan<- int64
+	unsubChan    chan chan<- int64
+	subscribers  map[chan<- int64]struct{}
 
 	// i.o.
 	timestreamOutbox    chan<- Tick
@@ -49,21 +50,25 @@ func NewClock(
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
 	ticker := time.NewTicker(time.Duration(interval))
 
+	isPaused := &atomic.Bool{}
+	isPaused.Store(true)
+
 	return &clock{
 		ctx:       ctx,
 		cancelCtx: cancel,
 		wg:        sync.WaitGroup{},
 		logger:    NewComponentLogger(clockID),
 
-		isPausedMu: sync.Mutex{},
-		isPaused:   true, // Init in paused state
-
+		isPaused:       isPaused,
 		startTime:      startTime,
 		simulationTime: startTime,
 		t:              ticker,
 
-		subscribersMu: sync.Mutex{},
-		subscribers:   make(map[chan<- int64]struct{}),
+		isPausedChan: make(chan bool, 1024),
+		subChan:      make(chan chan<- int64, 1024),
+		unsubChan:    make(chan chan<- int64, 1024),
+
+		subscribers: make(map[chan<- int64]struct{}),
 
 		timestreamOutbox:    timestreamOutbox,
 		getSimulationConfig: getSimulationConfig,
@@ -78,8 +83,39 @@ func (c *clock) Start() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-
 		for {
+			// Main loop: This is the only thread where c.subscribers ought to
+			// be modified.
+
+			// Prioritise sub/unsub of subscribers
+		SubLoop:
+			for {
+				select {
+				case pipe := <-c.subChan:
+					c.subscribers[pipe] = struct{}{}
+				case pipe := <-c.unsubChan:
+					delete(c.subscribers, pipe)
+				default:
+					break SubLoop
+				}
+			}
+
+			// Then pause / unpause
+		PauseLoop:
+			for {
+				select {
+				case x := <-c.isPausedChan:
+					if x == true {
+						c.isPaused.Store(true)
+					} else {
+						c.isPaused.Store(false)
+					}
+
+				default:
+					break PauseLoop
+				}
+			}
+
 			select {
 			case <-c.ctx.Done():
 				return
@@ -90,14 +126,12 @@ func (c *clock) Start() {
 				default:
 				}
 
-				c.isPausedMu.Lock()
-				if c.isPaused {
-					c.isPausedMu.Unlock()
+				// c.logger.Info(ts)
+
+				if c.isPaused.Load() == true {
 					continue
 				}
-				c.isPausedMu.Unlock()
 
-				c.subscribersMu.Lock()
 				for pipe := range c.subscribers {
 					// Non-blocking send
 					select {
@@ -106,7 +140,6 @@ func (c *clock) Start() {
 						// Do nothing
 					}
 				}
-				c.subscribersMu.Unlock()
 
 				c.simulationTime += 1000
 			}
@@ -117,13 +150,10 @@ func (c *clock) Start() {
 
 func (c *clock) PullSettingsAndReset() {
 	// Attaining this lock essentially pauses the clock
-	c.isPausedMu.Lock()
-	defer c.isPausedMu.Unlock()
-
 	config := c.getSimulationConfig()
 	c.startTime = common.NYSEOpenUnixMilli(config.Date)
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
-	c.t = time.NewTicker(time.Duration(interval))
+	c.t.Reset(time.Duration(interval))
 }
 
 func (c *clock) Shutdown() {
@@ -133,25 +163,32 @@ func (c *clock) Shutdown() {
 }
 
 func (c *clock) RegisterPipe(pipe chan<- int64) {
-	c.subscribersMu.Lock()
-	c.subscribers[pipe] = struct{}{}
-	c.subscribersMu.Unlock()
+	c.subChan <- pipe
+}
+
+func (c *clock) UnregisterPipe(pipe chan<- int64) {
+	c.unsubChan <- pipe
 }
 
 func (c *clock) Pause() {
-	c.isPausedMu.Lock()
-	defer c.isPausedMu.Unlock()
-	c.isPaused = true
+	c.isPausedChan <- true
 }
 
 func (c *clock) Resume() {
-	c.isPausedMu.Lock()
-	defer c.isPausedMu.Unlock()
-	c.isPaused = false
+	c.isPausedChan <- false
 }
 
 func (c *clock) IsPaused() bool {
-	c.isPausedMu.Lock()
-	defer c.isPausedMu.Unlock()
-	return c.isPaused
+	c.logger.Info("IsPaused()")
+	v := c.isPaused.Load()
+	c.logger.Info("", "v", v)
+	return v
+}
+
+func (c *clock) GetSimulationTime() int64 {
+	// Need to be able to grab current simulation time
+	// in thread-safe manner. This will be called by external
+	// threads
+
+	return 0
 }

@@ -8,7 +8,6 @@ POST http://localhost:8080/simulation/pause
 POST http://localhost:8080/simulation/resume
 
 ### Restart
-
 POST http://localhost:8080/simulation/restart
 
 # Symbol Hydration

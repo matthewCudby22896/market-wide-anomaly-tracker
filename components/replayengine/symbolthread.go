@@ -113,7 +113,7 @@ func (t *symbolThread) Start() {
 				return
 
 			case tick = <-t.tickInbox:
-				t.logger.Info("received tick", "tick", tick)
+				// t.logger.Info("received tick", "tick", tick)
 
 				// Send all bars that occured before the tick
 				for len(series) > 0 && series[len(series)-1].T <= tick {
@@ -143,7 +143,6 @@ func (t *symbolThread) Start2() {
 		// buffer1 := make([]common.Bar, bufferSize)
 		// buffer2 := make([]common.Bar, bufferSize)
 
-		// Need to somehow get current time
 	}()
 }
 
