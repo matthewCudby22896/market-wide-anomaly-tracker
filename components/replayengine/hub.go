@@ -75,9 +75,10 @@ type hub struct {
 	logger    *Logger
 	config    *configWrapper
 
-	clientRequestInbox chan ClientRequest
-	broadcastInbox     chan BroadcastMessage
-	hydrationStatePipe chan any
+	clientRequestInbox   chan ClientRequest
+	broadcastInbox       chan BroadcastMessage
+	hydrationStateInbox  <-chan any
+	hydrationStateOutbox chan<- any
 
 	clients               map[*client]struct{}
 	symbolToClient        map[common.Symbol]map[*client]struct{}
@@ -143,15 +144,16 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 
 	// Hub
 	h := &hub{
-		id:                 hubID,
-		ctx:                ctx,
-		cancelCtx:          cancel,
-		wg:                 sync.WaitGroup{},
-		logger:             NewComponentLogger(hubID),
-		config:             config,
-		clientRequestInbox: make(chan ClientRequest, 1024),
-		broadcastInbox:     make(chan BroadcastMessage, 1024),
-		hydrationStatePipe: hydrationStateChan,
+		id:                   hubID,
+		ctx:                  ctx,
+		cancelCtx:            cancel,
+		wg:                   sync.WaitGroup{},
+		logger:               NewComponentLogger(hubID),
+		config:               config,
+		clientRequestInbox:   make(chan ClientRequest, 1024),
+		broadcastInbox:       make(chan BroadcastMessage, 1024),
+		hydrationStateInbox:  hydrationStateChan,
+		hydrationStateOutbox: hydrationStateChan,
 
 		clients:               make(map[*client]struct{}),
 		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
@@ -224,7 +226,7 @@ func (h *hub) Start() {
 					h.handleUnsub(v)
 				}
 
-			case notification := <-h.hydrationStatePipe:
+			case notification := <-h.hydrationStateInbox:
 				switch v := notification.(type) {
 				case hydrationSuccess:
 					h.logger.Info("hydration notification received", "notification", v)
@@ -361,7 +363,7 @@ func (h *hub) unsubToTimestream(c *client) {
 
 func (h *hub) handleSub(req subRequest) {
 	c := req.Sender
-	// date :=
+	date := h.config.GetConfig().Date
 
 	for _, symbol := range req.symbols {
 		if symbol == TIMESTREAM {
@@ -372,12 +374,12 @@ func (h *hub) handleSub(req subRequest) {
 		if _, ok := h.symbolThreads[symbol]; !ok {
 			h.logger.Info("first subscriber, starting symbol thread", "client-id", c.ID, "symbol", symbol)
 
-			if h.DataCoordinator.IsReady(symbol, h.config.GetConfig().Date) {
+			if h.DataCoordinator.IsReady(symbol, date) {
 
 				// If ready, notify main loop
-				h.hydrationStatePipe <- hydrationSuccess{
+				h.hydrationStateOutbox <- hydrationSuccess{
 					Symbol: symbol,
-					Date:   h.config.GetConfig().Date,
+					Date:   date,
 				}
 			}
 
