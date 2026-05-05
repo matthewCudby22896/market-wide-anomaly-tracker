@@ -20,8 +20,8 @@ type clock struct {
 	logger    *Logger
 
 	isPaused       *atomic.Bool
-	startTime      int64 // Unix Milli
-	simulationTime int64 // Unix Milli
+	startTime      int64         // Unix Milli
+	simulationTime *atomic.Int64 // Unix Milli
 	t              *time.Ticker
 
 	isPausedChan chan bool
@@ -53,6 +53,9 @@ func NewClock(
 	isPaused := &atomic.Bool{}
 	isPaused.Store(true)
 
+	simulationTime := &atomic.Int64{}
+	simulationTime.Store(startTime)
+
 	return &clock{
 		ctx:       ctx,
 		cancelCtx: cancel,
@@ -61,7 +64,7 @@ func NewClock(
 
 		isPaused:       isPaused,
 		startTime:      startTime,
-		simulationTime: startTime,
+		simulationTime: simulationTime,
 		t:              ticker,
 
 		isPausedChan: make(chan bool, 1024),
@@ -120,13 +123,13 @@ func (c *clock) Start() {
 			case <-c.ctx.Done():
 				return
 			case <-c.t.C:
-				ts := common.UnixMilliToTimestampNYC(c.simulationTime)
+				simulationTime := c.simulationTime.Load()
+
+				ts := common.UnixMilliToTimestampNYC(simulationTime)
 				select { // Non-blocking send
 				case c.timestreamOutbox <- Tick{ts}:
 				default:
 				}
-
-				// c.logger.Info(ts)
 
 				if c.isPaused.Load() == true {
 					continue
@@ -135,13 +138,13 @@ func (c *clock) Start() {
 				for pipe := range c.subscribers {
 					// Non-blocking send
 					select {
-					case pipe <- c.simulationTime:
+					case pipe <- simulationTime:
 					default:
 						// Do nothing
 					}
 				}
 
-				c.simulationTime += 1000
+				c.simulationTime.Store(simulationTime + 1000)
 			}
 		}
 	}()
@@ -186,9 +189,5 @@ func (c *clock) IsPaused() bool {
 }
 
 func (c *clock) GetSimulationTime() int64 {
-	// Need to be able to grab current simulation time
-	// in thread-safe manner. This will be called by external
-	// threads
-
-	return 0
+	return c.simulationTime.Load()
 }
