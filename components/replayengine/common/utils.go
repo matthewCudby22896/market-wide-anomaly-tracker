@@ -7,6 +7,14 @@ import (
 	"cloud.google.com/go/civil"
 )
 
+func NYSEOpenUnixMilliFromStr(dateStr string) (int64, error) {
+	date, err := civil.ParseDate(dateStr)
+	if err != nil {
+		return 0, err
+	}
+	return NYSEOpenUnixMilli(date), nil
+}
+
 func NYSEOpenUnixMilli(day civil.Date) int64 {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -20,6 +28,14 @@ func NYSEOpenUnixMilli(day civil.Date) int64 {
 		location,
 	).UnixMilli()
 	return t
+}
+
+func NYSECloseUnixMilliFromStr(dateStr string) (int64, error) {
+	date, err := civil.ParseDate(dateStr)
+	if err != nil {
+		return 0, err
+	}
+	return NYSECloseUnixMilli(date), nil
 }
 
 func NYSECloseUnixMilli(day civil.Date) int64 {
@@ -39,14 +55,14 @@ func NYSECloseUnixMilli(day civil.Date) int64 {
 
 func UnixMilliToTimestampNYC(unixMilli int64) string {
 	t := time.UnixMilli(unixMilli)
-	
+
 	// Load New York location
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		// Fallback to UTC if the timezone DB isn't available
 		return t.Format(time.RFC3339)
 	}
-	
+
 	// Convert to NYC and format using the RFC3339 constant
 	return t.In(loc).Format(time.RFC3339)
 }

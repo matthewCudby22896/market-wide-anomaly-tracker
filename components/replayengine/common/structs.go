@@ -1,7 +1,11 @@
 package common
 
+import (
+	pgx "github.com/jackc/pgx/v5"
+)
+
 type Bar struct {
-	Symbol Symbol  // e.g. "AAPL"
+	Symbol string  // e.g. "AAPL"
 	T      int64   // timestamp
 	O      float64 // open
 	H      float64 // highest price
@@ -24,6 +28,7 @@ func DummyOHLCBar(symbol string) Bar {
 }
 
 type Series []Bar
+
 
 type Symbol string
 

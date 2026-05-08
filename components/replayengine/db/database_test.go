@@ -8,14 +8,22 @@ import (
 	"cloud.google.com/go/civil"
 
 	"github.com/mcudby/mwat/components/replayengine/common"
-	"github.com/mcudby/mwat/test/replayengine/utils"
 	"github.com/mcudby/mwat/components/replayengine/db"
+	"github.com/mcudby/mwat/test/replayengine/utils"
 	"github.com/stretchr/testify/suite"
 )
 
 const (
 	PostgresDB       = "postgres"
 	PostgresPassword = "password"
+	symbol           = "RR"
+	date             = "2026-03-31"
+)
+
+var (
+	civilDate   = civil.Date{Year: 2026, Month: 3, Day: 1}
+	openUnixTS  = common.NYSEOpenUnixMilli(civilDate)
+	closeUnixTS = common.NYSECloseUnixMilli(civilDate)
 )
 
 type databaseTestSuite struct {
@@ -49,36 +57,25 @@ func (s *databaseTestSuite) SetupSuite() {
 func (s *databaseTestSuite) SetupTest() {
 	s.database.RequireClearDatabase()
 }
-func (s *databaseTestSuite) TestBatchStoreBars() {
+func (s *databaseTestSuite) TestStoreCompleteSeries() {
 	ctx := s.T().Context()
-	symbol := common.Symbol("RR")
-	date := civil.Date{
-		Year:  2026,
-		Month: 3,
-		Day:   31,
-	}
+
+	// Setup
+	civilDate, _ := civil.ParseDate(date)
 	nBars := int64(4680)
-	open := common.NYSEOpenUnixMilli(date)
-	close := common.NYSECloseUnixMilli(date)
-	diff := close - open
-	delta := diff / nBars
+	open := common.NYSEOpenUnixMilli(civilDate)
+	close := common.NYSECloseUnixMilli(civilDate)
+	series := s.insertDummySeries(ctx, symbol, date, open, close, nBars)
 
-	bars := make(common.Series, nBars)
-	for i := range nBars {
-		bars[i] = common.Bar{
-			Symbol: symbol,
-			T:      open + delta*i,
-		}
-	}
-	slices.Reverse(bars)
-
-	err := s.replayEngineDB.StoreSeries(context.Background(), bars, symbol, date)
+	// FUT
+	err := s.replayEngineDB.StoreSeries(ctx, series, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.replayEngineDB.GetSeries(ctx, symbol, date)
+	retBars, err := s.replayEngineDB.GetSeries(ctx, symbol, civilDate)
 
+	slices.Reverse(series) // Currently
 	s.Require().NoError(err)
-	s.Require().Equal(bars, retBars, "the fetched bars were not equal to the input bars")
+	s.Require().Equal(series, retBars, "the fetched bars were not equal to the input bars")
 }
 
 func (s *databaseTestSuite) TestLoadHydrationState() {
@@ -100,7 +97,27 @@ func (s *databaseTestSuite) TestLoadHydrationState() {
 	s.Assert().Equal(expected, res[0])
 }
 
-func (s *databaseTestSuite) TestGet
+func (s *databaseTestSuite) TestGetSeriesSegment() {
+	ctx := s.T().Context()
+	symbol := common.Symbol("QQQ")
+
+	s.insertDummySeries(ctx)
+
+}
+
+// Inserts n dummy ohlc Bar evenly distributed across the timestamp range [t1, t2)
+func (s *databaseTestSuite) insertDummySeries(ctx context.Context, symbol, date string, t1, t2, n int64) []common.Bar {
+	var series []common.Bar
+
+	delta := int64((t2 - t1) / n)
+	for i := range n {
+		series[i] = common.Bar{T: int64(i) * delta}
+	}
+
+	s.replayEngineDB.StoreSeries(ctx, series, symbol, date)
+
+	return series
+}
 
 func TestDBTestSuite(t *testing.T) {
 	suite.Run(t, new(databaseTestSuite))

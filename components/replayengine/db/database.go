@@ -21,6 +21,22 @@ type ReplayEngineDB struct {
 
 var once sync.Once
 
+const BaseTableName = "bars_1sec"
+
+var (
+	ColNames = []string{
+		"symbol",
+		"t",
+		"o",
+		"h",
+		"l",
+		"c",
+		"n",
+		"v",
+		"vw",
+	}
+)
+
 func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
 	pool, err := pgxpool.New(ctx, connectionURI)
 	if err != nil {
@@ -68,13 +84,10 @@ func RequireNewDatabase(connectionURI string) *ReplayEngineDB {
 }
 
 func (db *ReplayEngineDB) GetConn(ctx context.Context) (*pgxpool.Conn, error) {
-	conn, err := db.connPool.Acquire(ctx)
-	return conn, err
+	return db.connPool.Acquire(ctx)
 }
 
-// Note - future optimisation: This could likely be quicker if I implement the
-// CopyFromSource interface (to avoid buffering in memory)
-func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error {
+func (db *ReplayEngineDB) InsertCompleteSeries(ctx context.Context, series []common.Bar, symbol, date string) error {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -87,17 +100,9 @@ func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series,
 	}
 	defer tx.Rollback(ctx)
 
-	n, err := tx.CopyFrom(
-		ctx,
-		pgx.Identifier{"bars_1sec"},
-		series.ColNames(),
-		pgx.CopyFromRows(series.ToRows()),
-	)
+	err = db.insertSeriesInTx(ctx, tx, series)
 	if err != nil {
-		return fmt.Errorf("failed to bulk insert: %w", err)
-	}
-	if n != int64(len(series)) {
-		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(series))
+		return fmt.Errorf("failed to insert series: %w", err)
 	}
 
 	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
@@ -108,9 +113,37 @@ func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series,
 	return nil
 }
 
-func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol common.Symbol, date civil.Date) error {
+func (db *ReplayEngineDB) insertSeriesInTx(ctx context.Context, tx pgx.Tx, series []common.Bar) error {
+	n, err := tx.CopyFrom(
+		ctx,
+		pgx.Identifier{BaseTableName},
+		ColNames,
+		pgx.CopyFromSlice(
+			len(series),
+			func(i int) ([]any, error) {
+				return []any{
+					series[i].Symbol,
+					series[i].T,
+					series[i].O,
+					series[i].H,
+					series[i].L,
+					series[i].C,
+					series[i].N,
+					series[i].V,
+					series[i].VW,
+				}, nil
+			},
+		),
+	)
+	if n != int64(len(series)) {
+		return fmt.Errorf("no. rows copied != no. bars in series")
+	}
+	return err
+}
+
+func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol, date string) error {
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
-	_, err := tx.Exec(ctx, stmt, symbol, date.String())
+	_, err := tx.Exec(ctx, stmt, symbol, date)
 	if err != nil {
 		return err
 	}
@@ -121,8 +154,8 @@ func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx 
 // - Errors if the no. rows returned in the query exceed the capacity of the buffer
 func (db *ReplayEngineDB) GetSeriesSegment(
 	ctx context.Context,
-	symbol common.Symbol,
-	date civil.Date,
+	symbol string,
+	date string,
 	t1 int64,
 	t2 int64,
 	buffer []common.Bar,
@@ -176,7 +209,7 @@ func (db *ReplayEngineDB) GetSeriesSegment(
 	return n, nil
 }
 
-func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
+func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol string, date civil.Date) (common.Series, error) {
 	conn, err := db.GetConn(ctx)
 	defer conn.Release()
 	if err != nil {
