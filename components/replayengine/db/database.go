@@ -117,6 +117,65 @@ func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx 
 	return nil
 }
 
+// Populates the buffer for the range timestamp [t1, t2), returns the no. bars copied into the buffer
+// - Errors if the no. rows returned in the query exceed the capacity of the buffer
+func (db *ReplayEngineDB) GetSeriesSegment(
+	ctx context.Context,
+	symbol common.Symbol,
+	date civil.Date,
+	t1 int64,
+	t2 int64,
+	buffer []common.Bar,
+) (int, error) {
+	conn, err := db.GetConn(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	stmt := `
+		SELECT symbol, t, o, h, l, c, n, v, vw
+		FROM bars_1sec
+		WHERE t >= $1
+		AND t < $2
+		AND symbol = $3
+		ORDER BY t ASC
+	`
+	rows, err := conn.Query(
+		ctx,
+		stmt,
+		t1,
+		t2,
+		symbol,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	n := 0
+	for i := range cap(buffer) {
+		if rows.Next() {
+			rows.Scan(&buffer[i])
+			n += 1
+		} else {
+			err := rows.Err()
+			if err != nil {
+				return 0, fmt.Errorf("result set reading ended prematurely due to err: %w", err)
+			}
+		}
+	}
+
+	if rows.Next() {
+		nExtra := 1
+		for rows.Next() {
+			nExtra += 1
+		}
+		return 0, fmt.Errorf("size of query result (%d rows) exceeed buffer capacity (%d)", cap(buffer)+nExtra, cap(buffer))
+	}
+
+	return n, nil
+}
+
 func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
 	conn, err := db.GetConn(ctx)
 	defer conn.Release()

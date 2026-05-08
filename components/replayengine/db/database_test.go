@@ -100,6 +100,8 @@ func (s *databaseTestSuite) TestLoadHydrationState() {
 	s.Assert().Equal(expected, res[0])
 }
 
+func (s *databaseTestSuite) TestGet
+
 func TestDBTestSuite(t *testing.T) {
 	suite.Run(t, new(databaseTestSuite))
 }

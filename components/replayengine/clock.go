@@ -182,10 +182,7 @@ func (c *clock) Resume() {
 }
 
 func (c *clock) IsPaused() bool {
-	c.logger.Info("IsPaused()")
-	v := c.isPaused.Load()
-	c.logger.Info("", "v", v)
-	return v
+	return c.isPaused.Load()
 }
 
 func (c *clock) GetSimulationTime() int64 {

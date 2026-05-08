@@ -188,7 +188,7 @@ func (h *hub) Shutdown() {
 	h.DataCoordinator.Shutdown()
 
 	for _, symbolThread := range h.symbolThreads {
-		h.logger.LogStopChild(symbolThread.ID)
+		h.logger.LogStopChild(symbolThread.id)
 		symbolThread.Shutdown()
 	}
 
@@ -321,7 +321,7 @@ func (h *hub) restartSymbolThreads() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			h.logger.Info("restarting symbol thread", "symbol-thread-id", symbolThread.ID)
+			h.logger.Info("restarting symbol thread", "symbol-thread-id", symbolThread.id)
 			symbolThread.Restart()
 		}()
 	}
@@ -469,7 +469,7 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 
 func (h *hub) killSymbolThread(symbol common.Symbol) {
 	thread := h.symbolThreads[symbol]
-	h.logger.LogStopChild(thread.ID)
+	h.logger.LogStopChild(thread.id)
 	thread.AsyncShutdown()
 	delete(h.symbolThreads, symbol)
 }

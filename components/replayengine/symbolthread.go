@@ -22,17 +22,17 @@ type SymbolThread interface {
 }
 
 type symbolThread struct {
-	ID        string
-	Ctx       context.Context
-	CancelCtx context.CancelFunc
-	wg        sync.WaitGroup
-	symbol    common.Symbol
-	Date      civil.Date
-	logger    *Logger
-	outbox    chan<- BroadcastMessage
-	tickInbox <-chan int64
-	db        *db.ReplayEngineDB
-	getTime   func() int64
+	id                string
+	ctx               context.Context
+	cancelCtx         context.CancelFunc
+	wg                sync.WaitGroup
+	symbol            common.Symbol
+	date              civil.Date
+	logger            *Logger
+	outbox            chan<- BroadcastMessage
+	tickInbox         <-chan int64
+	db                *db.ReplayEngineDB
+	getSimulationTime func() int64
 }
 
 func NewSymbolThread(
@@ -41,28 +41,29 @@ func NewSymbolThread(
 	db *db.ReplayEngineDB,
 	outbox chan<- BroadcastMessage,
 	tickInbox <-chan int64,
-
+	getSimulationTime func() int64,
 ) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	id := fmt.Sprintf("%s-%s", symbol, date.String())
 
 	return &symbolThread{
-		ID:        id,
-		Ctx:       ctx,
-		CancelCtx: cancel,
+		id:        id,
+		ctx:       ctx,
+		cancelCtx: cancel,
 		wg:        sync.WaitGroup{},
 		logger:    NewComponentLogger(id),
 		symbol:    symbol,
-		Date:      date,
+		date:      date,
 		tickInbox: tickInbox,
 		db:        db,
 		outbox:    outbox,
+		getSimulationTime: getSimulationTime,
 	}
 }
 
 func (t *symbolThread) Shutdown() {
-	t.CancelCtx()
+	t.cancelCtx()
 	t.wg.Wait()
 	t.logger.LogShutdown()
 }
@@ -83,7 +84,7 @@ func (t *symbolThread) Start() {
 		t.logger.Info("in main loop")
 
 		// Currently returns in DESC order
-		series, err := t.db.GetSeries(t.Ctx, t.symbol, t.Date)
+		series, err := t.db.GetSeries(t.ctx, t.symbol, t.date)
 		if err != nil {
 			t.logger.Error("failed to fetch data for symbol", "symbol", t.symbol, "error", err)
 			t.Shutdown()
@@ -108,7 +109,7 @@ func (t *symbolThread) Start() {
 
 		for {
 			select {
-			case <-t.Ctx.Done():
+			case <-t.ctx.Done():
 				t.logger.Info("done")
 				return
 
@@ -140,9 +141,13 @@ func (t *symbolThread) Start2() {
 	go func() {
 		defer t.wg.Done()
 
-		// buffer1 := make([]common.Bar, bufferSize)
-		// buffer2 := make([]common.Bar, bufferSize)
+		buffer1 := make([]common.Bar, bufferSize)
+		buffer2 := make([]common.Bar, bufferSize)
 
+		time := t.getSimulationTime()
+
+		// 1. Populate the buffer
+		t.db.GetSeries()
 	}()
 }
 
@@ -154,7 +159,7 @@ func (t *symbolThread) Restart() {
 	t.Shutdown()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Ctx = ctx
-	t.CancelCtx = cancel
+	t.ctx = ctx
+	t.cancelCtx = cancel
 	t.Start()
 }
