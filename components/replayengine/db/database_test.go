@@ -2,7 +2,6 @@ package db_test
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"cloud.google.com/go/civil"
@@ -28,52 +27,52 @@ var (
 
 type databaseTestSuite struct {
 	suite.Suite
-	database utils.TestTimescaleDB
+	timescaleDB utils.TestTimescaleDB
 
 	replayEngineDB *db.ReplayEngineDB
 }
 
 func (s *databaseTestSuite) SetupSuite() {
 	t := s.T()
-	s.database = *utils.RequireStartTimescaleDB(
+	s.timescaleDB = *utils.RequireStartTimescaleDB(
 		t,
 		PostgresPassword,
 		PostgresDB,
 	)
 
 	cleanup := func() {
-		err := s.database.Cancel()
+		err := s.timescaleDB.Cancel()
 		if err != nil {
 			t.Log(err)
 		}
 	}
 
 	t.Cleanup(cleanup)
-
-	s.replayEngineDB = db.RequireNewDatabase(s.database.GetConnectionURI())
+	s.replayEngineDB = db.EstablishDBConnection(s.T().Context(), s.timescaleDB.GetConnectionURI())
 	s.replayEngineDB.RequireApplyMigrations()
 }
 
 func (s *databaseTestSuite) SetupTest() {
-	s.database.RequireClearDatabase()
+	s.timescaleDB.RequireClearDatabase()
 }
-func (s *databaseTestSuite) TestStoreCompleteSeries() {
+func (s *databaseTestSuite) TestInsertFullSession() {
 	ctx := s.T().Context()
+
+	s.timescaleDB.RequireClearDatabase()
 
 	// Setup
 	civilDate, _ := civil.ParseDate(date)
-	nBars := int64(4680)
+	nBars := int64(100)
 	open := common.NYSEOpenUnixMilli(civilDate)
 	close := common.NYSECloseUnixMilli(civilDate)
-	series := s.insertDummySeries(ctx, symbol, date, open, close, nBars)
+	series := s.getDummySeries(symbol, open, close, nBars)
 
 	// FUT
-	err := s.replayEngineDB.StoreSeries(ctx, series, symbol, date)
+	err := s.replayEngineDB.InsertFullSession(ctx, series, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.replayEngineDB.GetSeries(ctx, symbol, civilDate)
+	retBars, err := s.replayEngineDB.GetFullSession(ctx, symbol, civilDate)
 
-	slices.Reverse(series) // Currently
 	s.Require().NoError(err)
 	s.Require().Equal(series, retBars, "the fetched bars were not equal to the input bars")
 }
@@ -87,7 +86,7 @@ func (s *databaseTestSuite) TestLoadHydrationState() {
 	_, err = conn.Exec(ctx, stmt, "AAPL", "2026-03-20")
 	s.Require().NoError(err)
 
-	res, err := s.replayEngineDB.LoadHydrationState(ctx)
+	res, err := s.replayEngineDB.GetHydrationStatus(ctx)
 	s.Require().NoError(err)
 	s.Assert().Len(res, 1)
 	expected := common.HydrationStatusRow{
@@ -97,24 +96,46 @@ func (s *databaseTestSuite) TestLoadHydrationState() {
 	s.Assert().Equal(expected, res[0])
 }
 
-func (s *databaseTestSuite) TestGetSeriesSegment() {
+func (s *databaseTestSuite) TestGetSeries() {
 	ctx := s.T().Context()
-	symbol := common.Symbol("QQQ")
 
-	s.insertDummySeries(ctx)
+	s.T().Run(
+		"TestErrorsWhenBufferTooSmall",
+		func(t *testing.T) {
+
+			t1 := int64(0)
+			t2 := int64(9999)
+			n := int64(500)
+			s.insertDummySeries(ctx, symbol, date, t1, t2, n)
+
+			buffer := make([]common.Bar, 200)
+			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer)
+			s.Require().Equal(x, 0)
+			s.Require().Error(err)
+
+			// s.Require().ErrorIs()
+		},
+	)
 
 }
 
 // Inserts n dummy ohlc Bar evenly distributed across the timestamp range [t1, t2)
 func (s *databaseTestSuite) insertDummySeries(ctx context.Context, symbol, date string, t1, t2, n int64) []common.Bar {
-	var series []common.Bar
+	series := s.getDummySeries(symbol, t1, t2, n)
+
+	err := s.replayEngineDB.InsertFullSession(ctx, series, symbol, date)
+	s.Require().NoError(err)
+
+	return series
+}
+
+func (s *databaseTestSuite) getDummySeries(symbol string, t1, t2, n int64) []common.Bar {
+	series := make([]common.Bar, n)
 
 	delta := int64((t2 - t1) / n)
 	for i := range n {
-		series[i] = common.Bar{T: int64(i) * delta}
+		series[i] = common.Bar{Symbol: symbol, T: t1 + int64(i)*delta}
 	}
-
-	s.replayEngineDB.StoreSeries(ctx, series, symbol, date)
 
 	return series
 }

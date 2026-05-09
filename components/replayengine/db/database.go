@@ -64,7 +64,7 @@ func (db *ReplayEngineDB) GetConn(ctx context.Context) (*pgxpool.Conn, error) {
 	return db.connPool.Acquire(ctx)
 }
 
-func (db *ReplayEngineDB) InsertCompleteSeries(ctx context.Context, series []common.Bar, symbol, date string) error {
+func (db *ReplayEngineDB) InsertFullSession(ctx context.Context, series []common.Bar, symbol, date string) error {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -83,9 +83,11 @@ func (db *ReplayEngineDB) InsertCompleteSeries(ctx context.Context, series []com
 		return fmt.Errorf("failed to insert series: %w", err)
 	}
 	// Record hydration for symbol-date combo
-	db.recordHydrationInTx(ctx, tx, symbol, date)
+	if err := db.recordHydrationInTx(ctx, tx, symbol, date); err != nil {
+		return fmt.Errorf("failed to record hydration: %w", err)
+	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit tx: %w", err)
 	}
 	return nil
@@ -113,6 +115,9 @@ func (db *ReplayEngineDB) insertSeriesInTx(ctx context.Context, tx pgx.Tx, serie
 			},
 		),
 	)
+	if err != nil {
+		return err
+	}
 	if n != int64(len(series)) {
 		return fmt.Errorf("no. rows copied != no. bars in series")
 	}
@@ -129,7 +134,7 @@ func (db *ReplayEngineDB) recordHydrationInTx(ctx context.Context, tx pgx.Tx, sy
 }
 
 // Convenience method for fetching the complete trading day for a specified date & symbol
-func (db *ReplayEngineDB) GetTradingDaySeries(
+func (db *ReplayEngineDB) GetFullSession(
 	ctx context.Context,
 	symbol string,
 	date civil.Date,
@@ -142,10 +147,10 @@ func (db *ReplayEngineDB) GetTradingDaySeries(
 	stmt := `
 		SELECT symbol, t, o, h, l, c, n, v, vw
 		FROM bars_1sec
-		WHERE t >= $1g
+		WHERE t >= $1
 		AND t <= $2
 		AND symbol = $3
-		ORDER BY t DESC
+		ORDER BY t ASC
 	`
 	t1 := common.NYSEOpenUnixMilli(date)
 	t2 := common.NYSECloseUnixMilli(date)
@@ -156,7 +161,7 @@ func (db *ReplayEngineDB) GetTradingDaySeries(
 		t2,
 		symbol,
 	)
-	series := make([]common.Bar, 1)
+	series := make([]common.Bar, 0)
 	var bar common.Bar
 	for rows.Next() {
 		rows.Scan(
@@ -249,7 +254,7 @@ func (db *ReplayEngineDB) GetSeries(
 	return n, nil
 }
 
-func (db *ReplayEngineDB) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
+func (db *ReplayEngineDB) GetHydrationStatus(ctx context.Context) ([]common.HydrationStatusRow, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)

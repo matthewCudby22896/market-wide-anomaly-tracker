@@ -119,7 +119,7 @@ func (c *dataCoordinator) Start() {
 }
 
 func (c *dataCoordinator) InitStatusMap() {
-	state, err := c.database.LoadHydrationState(c.Ctx)
+	state, err := c.database.GetHydrationStatus(c.Ctx)
 	if err != nil {
 		c.logger.Error("failed to load hydration state", "error", err)
 	}
@@ -181,7 +181,7 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol string, date
 		return fmt.Errorf("symbol hydration failed for `%s-%s`: %w", symbol, date, err)
 	}
 
-	err = c.database.InsertCompleteSeries(ctx, bars, symbol, date.String())
+	err = c.database.InsertFullSession(ctx, bars, symbol, date.String())
 	if err != nil {
 		return fmt.Errorf("failed to store series for `%s-%s`: %w", symbol, date, err)
 	}
@@ -211,7 +211,7 @@ func (c *dataCoordinator) HydrationTask(symbol string, date civil.Date) {
 		c.outbox <- hydrationFailure{symbol, date}
 	}
 
-	err = c.database.InsertCompleteSeries(ctx, bars, symbol, date.String())
+	err = c.database.InsertFullSession(ctx, bars, symbol, date.String())
 	if err != nil {
 		c.logger.Fatal(
 			"failed to store fetched ohlc bars",
