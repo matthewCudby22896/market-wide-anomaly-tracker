@@ -40,6 +40,7 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 
 	timeout := time.After(20 * time.Second)
 	for {
+		fmt.Print("attempting to establish connection to database...\n")
 		_, err := pool.Acquire(ctx)
 		if err == nil {
 			break
@@ -47,6 +48,8 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 		select {
 		default:
 			time.Sleep(500 * time.Millisecond)
+		case <-ctx.Done():
+			return nil
 		case <-timeout:
 			log.Fatalf("failed to ping database within allotted time")
 		}
@@ -130,7 +133,7 @@ func (db *ReplayEngineDB) GetTradingDaySeries(
 	ctx context.Context,
 	symbol string,
 	date civil.Date,
-) ([]common.Bar, error){
+) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
 	defer conn.Release()
 	if err != nil {

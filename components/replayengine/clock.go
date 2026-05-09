@@ -24,10 +24,11 @@ type clock struct {
 	simulationTime *atomic.Int64 // Unix Milli
 	t              *time.Ticker
 
-	isPausedChan chan bool
-	subChan      chan chan<- int64
-	unsubChan    chan chan<- int64
-	subscribers  map[chan<- int64]struct{}
+	triggerRestartChan chan any
+	isPausedChan       chan bool
+	subChan            chan chan<- int64
+	unsubChan          chan chan<- int64
+	subscribers        map[chan<- int64]struct{}
 
 	// i.o.
 	timestreamOutbox    chan<- Tick
@@ -67,9 +68,10 @@ func NewClock(
 		simulationTime: simulationTime,
 		t:              ticker,
 
-		isPausedChan: make(chan bool, 1024),
-		subChan:      make(chan chan<- int64, 1024),
-		unsubChan:    make(chan chan<- int64, 1024),
+		triggerRestartChan: make(chan any, 1024),
+		isPausedChan:       make(chan bool, 1024),
+		subChan:            make(chan chan<- int64, 1024),
+		unsubChan:          make(chan chan<- int64, 1024),
 
 		subscribers: make(map[chan<- int64]struct{}),
 
@@ -103,13 +105,18 @@ func (c *clock) Start() {
 				}
 			}
 
-			// Then pause / unpause
+			// Then pause / unpause / restart
 		PauseLoop:
 			for {
 				select {
+				case <-c.triggerRestartChan:
+					c.isPaused.Store(true)
+					c.PullSettingsAndReset()
+
 				case x := <-c.isPausedChan:
 					if x == true {
 						c.isPaused.Store(true)
+
 					} else {
 						c.isPaused.Store(false)
 					}
@@ -156,6 +163,7 @@ func (c *clock) PullSettingsAndReset() {
 	config := c.getSimulationConfig()
 	c.startTime = common.NYSEOpenUnixMilli(config.Date)
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64
+	c.simulationTime.Store(c.startTime)
 	c.t.Reset(time.Duration(interval))
 }
 
@@ -175,6 +183,10 @@ func (c *clock) UnregisterPipe(pipe chan<- int64) {
 
 func (c *clock) Pause() {
 	c.isPausedChan <- true
+}
+
+func (c *clock) Restart() {
+	c.triggerRestartChan <- nil
 }
 
 func (c *clock) Resume() {

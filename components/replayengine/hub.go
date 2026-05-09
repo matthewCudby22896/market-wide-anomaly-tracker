@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
-	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
@@ -276,18 +275,8 @@ func (h *hub) ResumeSimulation() {
 }
 
 func (h *hub) RestartSimulation() {
-	wasPaused := h.clock.IsPaused()
-
-	h.clock.Pause()
-	h.clock.PullSettingsAndReset()
+	h.clock.Restart()
 	h.restartSymbolThreads()
-
-	// todo: simplify
-	if wasPaused && !h.clock.IsPaused() {
-		h.clock.Pause()
-	} else if !wasPaused && h.clock.IsPaused() {
-		h.clock.Resume()
-	}
 }
 
 func (h *hub) HydrateSymbol(ctx context.Context, symbol string, date civil.Date) error {

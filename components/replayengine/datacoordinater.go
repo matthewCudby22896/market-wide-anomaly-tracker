@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
-	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
@@ -182,7 +181,7 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol string, date
 		return fmt.Errorf("symbol hydration failed for `%s-%s`: %w", symbol, date, err)
 	}
 
-	err = c.database.StoreSeries(ctx, bars, symbol, date)
+	err = c.database.InsertCompleteSeries(ctx, bars, symbol, date.String())
 	if err != nil {
 		return fmt.Errorf("failed to store series for `%s-%s`: %w", symbol, date, err)
 	}
