@@ -218,7 +218,17 @@ func (db *ReplayEngineDB) GetSeries(
 	n := 0
 	for i := range cap(buffer) {
 		if rows.Next() {
-			rows.Scan(&buffer[i])
+			rows.Scan(
+				&buffer[i].Symbol,
+				&buffer[i].T,
+				&buffer[i].O,
+				&buffer[i].H,
+				&buffer[i].L,
+				&buffer[i].C,
+				&buffer[i].N,
+				&buffer[i].V,
+				&buffer[i].VW,
+			)
 			n += 1
 		} else {
 			err := rows.Err()
