@@ -11,8 +11,6 @@ import (
 
 const clockID = "clock"
 
-// todo: think more carefully about the use of sync.Mutex here
-// Can likely be simplified
 type clock struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
@@ -111,7 +109,7 @@ func (c *clock) Start() {
 				select {
 				case <-c.triggerRestartChan:
 					c.isPaused.Store(true)
-					c.PullSettingsAndReset()
+					c.pullSettingsAndReset()
 
 				case x := <-c.isPausedChan:
 					if x == true {
@@ -158,8 +156,7 @@ func (c *clock) Start() {
 	c.logger.LogStart()
 }
 
-func (c *clock) PullSettingsAndReset() {
-	// Attaining this lock essentially pauses the clock
+func (c *clock) pullSettingsAndReset() {
 	config := c.getSimulationConfig()
 	c.startTime = common.NYSEOpenUnixMilli(config.Date)
 	interval := time.Duration(float64(time.Second) / float64(config.Timescale)) // int64

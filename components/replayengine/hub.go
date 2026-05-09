@@ -289,19 +289,7 @@ func (h *hub) GetSimulationSettings() SimulationConfig {
 
 func (h *hub) SetSimulationSettings(newConfig SimulationConfig) {
 	h.config.SetConfig(newConfig)
-
-	wasPaused := h.clock.IsPaused()
-
-	h.clock.Pause()
-	h.clock.PullSettingsAndReset()
-	h.restartSymbolThreads()
-
-	// todo: simplify
-	if wasPaused && !h.clock.IsPaused() {
-		h.clock.Pause()
-	} else if !wasPaused && h.clock.IsPaused() {
-		h.clock.Resume()
-	}
+	h.RestartSimulation()
 }
 
 func (h *hub) restartSymbolThreads() {
