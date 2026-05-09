@@ -157,7 +157,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	successWithMsg(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
-func validateHydrateRequest(req hydrationRequest) (common.Symbol, civil.Date, error) {
+func validateHydrateRequest(req hydrationRequest) (string, civil.Date, error) {
 	date, err := validateDateStr(req.Date)
 	if err != nil {
 		return "", civil.Date{}, err
@@ -165,7 +165,7 @@ func validateHydrateRequest(req hydrationRequest) (common.Symbol, civil.Date, er
 	if req.Symbol == "" {
 		return "", civil.Date{}, fmt.Errorf("missing/empty field `symbol`")
 	}
-	symbol := common.Symbol(req.Symbol)
+	symbol := string(req.Symbol)
 
 	return symbol, date, nil
 }

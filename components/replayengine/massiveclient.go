@@ -24,7 +24,7 @@ const massiveClientID = "massive-client"
 
 type MassiveClient interface {
 	LifeCycle
-	FetchDayData(ctx context.Context, day civil.Date, symbol common.Symbol) ([]common.Bar, error)
+	FetchDayData(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error)
 }
 
 type massiveClient struct {
@@ -91,7 +91,7 @@ func (c *massiveClient) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol common.Symbol) ([]common.Bar, error) {
+func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",

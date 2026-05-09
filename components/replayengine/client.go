@@ -8,7 +8,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
-	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
 var clientID int = 0
@@ -109,10 +108,10 @@ func (c *client) ListenerThread() {
 	}
 }
 
-func toTypedTicker(arr []string) []common.Symbol {
-	typedTickers := make([]common.Symbol, len(arr))
+func toTypedTicker(arr []string) []string {
+	typedTickers := make([]string, len(arr))
 	for i, ticker := range arr {
-		typedTickers[i] = common.Symbol(ticker)
+		typedTickers[i] = string(ticker)
 	}
 	return typedTickers
 }

@@ -16,5 +16,3 @@ type HydrationStatusRow struct {
 	Symbol string
 	Date   string
 }
-
-type Symbol string

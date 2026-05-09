@@ -15,15 +15,15 @@ func NYSEOpenUnixMilliFromStr(dateStr string) (int64, error) {
 	return NYSEOpenUnixMilli(date), nil
 }
 
-func NYSEOpenUnixMilli(day civil.Date) int64 {
+func NYSEOpenUnixMilli(date civil.Date) int64 {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		log.Fatal(err)
 	}
 	t := time.Date(
-		day.Year,
-		day.Month,
-		day.Day,
+		date.Year,
+		date.Month,
+		date.Day,
 		9, 30, 0, 0, // 9:30:00.000000
 		location,
 	).UnixMilli()
@@ -38,15 +38,15 @@ func NYSECloseUnixMilliFromStr(dateStr string) (int64, error) {
 	return NYSECloseUnixMilli(date), nil
 }
 
-func NYSECloseUnixMilli(day civil.Date) int64 {
+func NYSECloseUnixMilli(date civil.Date) int64 {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		log.Fatal(err)
 	}
 	t := time.Date(
-		day.Year,
-		day.Month,
-		day.Day,
+		date.Year,
+		date.Month,
+		date.Day,
 		16, 0, 0, 0,
 		location,
 	).UnixMilli()

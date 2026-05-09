@@ -45,12 +45,12 @@ type unregisterRequest struct {
 
 type subRequest struct {
 	BaseRequest
-	symbols []common.Symbol
+	symbols []string
 }
 
 type unsubRequest struct {
 	BaseRequest
-	symbols []common.Symbol
+	symbols []string
 }
 
 type Hub interface {
@@ -61,7 +61,7 @@ type Hub interface {
 	PauseSimulation()
 	ResumeSimulation()
 	RestartSimulation()
-	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
+	HydrateSymbol(ctx context.Context, symbol string, date civil.Date) error
 	GetSimulationSettings() SimulationConfig
 	SetSimulationSettings(newSettings SimulationConfig)
 }
@@ -81,9 +81,9 @@ type hub struct {
 	hydrationStateOutbox chan<- any
 
 	clients               map[*client]struct{}
-	symbolToClient        map[common.Symbol]map[*client]struct{}
-	symbolThreads         map[common.Symbol]*symbolThread
-	clientToSubbedSymbols map[*client]map[common.Symbol]struct{}
+	symbolToClient        map[string]map[*client]struct{}
+	symbolThreads         map[string]*symbolThread
+	clientToSubbedSymbols map[*client]map[string]struct{}
 
 	subbedToTimestream map[*client]struct{}
 	timestreamInbox    <-chan Tick
@@ -156,9 +156,9 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 		hydrationStateOutbox: hydrationStateChan,
 
 		clients:               make(map[*client]struct{}),
-		symbolToClient:        make(map[common.Symbol]map[*client]struct{}),
-		clientToSubbedSymbols: make(map[*client]map[common.Symbol]struct{}),
-		symbolThreads:         make(map[common.Symbol]*symbolThread),
+		symbolToClient:        make(map[string]map[*client]struct{}),
+		clientToSubbedSymbols: make(map[*client]map[string]struct{}),
+		symbolThreads:         make(map[string]*symbolThread),
 
 		subbedToTimestream: make(map[*client]struct{}),
 		timestreamInbox:    timestreamChan,
@@ -290,7 +290,7 @@ func (h *hub) RestartSimulation() {
 	}
 }
 
-func (h *hub) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error {
+func (h *hub) HydrateSymbol(ctx context.Context, symbol string, date civil.Date) error {
 	return h.DataCoordinator.HydrateSymbol(ctx, symbol, date)
 }
 
@@ -391,7 +391,7 @@ func (h *hub) handleSub(req subRequest) {
 		}
 
 		if h.clientToSubbedSymbols[c] == nil {
-			h.clientToSubbedSymbols[c] = make(map[common.Symbol]struct{})
+			h.clientToSubbedSymbols[c] = make(map[string]struct{})
 		}
 
 		if _, ok := h.symbolToClient[symbol][c]; ok {
@@ -467,14 +467,14 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 	h.logger.Info("client unregistered from hub", "client-id", c.ID, "client-count", len(h.clients))
 }
 
-func (h *hub) killSymbolThread(symbol common.Symbol) {
+func (h *hub) killSymbolThread(symbol string) {
 	thread := h.symbolThreads[symbol]
 	h.logger.LogStopChild(thread.id)
 	thread.AsyncShutdown()
 	delete(h.symbolThreads, symbol)
 }
 
-func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolThread {
+func (h *hub) StartTickerThread(symbol string, date civil.Date) *symbolThread {
 	h.logger.Info("StartTickerThread()!")
 	h.logger.LogStartChild(fmt.Sprintf("SymbolThread-%s", symbol))
 
@@ -487,6 +487,7 @@ func (h *hub) StartTickerThread(symbol common.Symbol, date civil.Date) *symbolTh
 		h.Database,
 		h.broadcastInbox,
 		tickPipe,
+		h.clock.GetSimulationTime,
 	)
 
 	// 2. Register it with the clock s.t. it recieves ticks

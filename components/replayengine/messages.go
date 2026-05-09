@@ -6,6 +6,6 @@ import (
 )
 
 type symbolHydrated struct {
-	symbol common.Symbol
+	symbol string
 	date   civil.Date
 }
