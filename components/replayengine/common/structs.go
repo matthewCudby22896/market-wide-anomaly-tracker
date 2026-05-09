@@ -1,9 +1,5 @@
 package common
 
-import (
-	pgx "github.com/jackc/pgx/v5"
-)
-
 type Bar struct {
 	Symbol string  // e.g. "AAPL"
 	T      int64   // timestamp
@@ -17,51 +13,8 @@ type Bar struct {
 }
 
 type HydrationStatusRow struct {
-	Symbol Symbol
+	Symbol string
 	Date   string
 }
 
-func DummyOHLCBar(symbol string) Bar {
-	return Bar{
-		Symbol: Symbol(symbol),
-	}
-}
-
-type Series []Bar
-
-
 type Symbol string
-
-func (a Series) ToRows() [][]any {
-	matrix := make([][]any, len(a))
-
-	for i := range matrix {
-		matrix[i] = []any{
-			a[i].Symbol,
-			a[i].T,
-			a[i].O,
-			a[i].H,
-			a[i].L,
-			a[i].C,
-			a[i].N,
-			a[i].V,
-			a[i].VW,
-		}
-	}
-
-	return matrix
-}
-
-func (a Series) ColNames() []string {
-	return []string{
-		"symbol",
-		"t",
-		"o",
-		"h",
-		"l",
-		"c",
-		"n",
-		"v",
-		"vw",
-	}
-}

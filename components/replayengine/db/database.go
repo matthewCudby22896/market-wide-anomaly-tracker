@@ -19,23 +19,19 @@ type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
 }
 
-var once sync.Once
-
 const BaseTableName = "bars_1sec"
 
-var (
-	ColNames = []string{
-		"symbol",
-		"t",
-		"o",
-		"h",
-		"l",
-		"c",
-		"n",
-		"v",
-		"vw",
-	}
-)
+var ColNames = []string{
+	"symbol",
+	"t",
+	"o",
+	"h",
+	"l",
+	"c",
+	"n",
+	"v",
+	"vw",
+}
 
 func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
 	pool, err := pgxpool.New(ctx, connectionURI)
@@ -62,27 +58,6 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 	}
 }
 
-func RequireNewDatabase(connectionURI string) *ReplayEngineDB {
-	var db *ReplayEngineDB
-	once.Do(func() {
-		/* A pool returns without waiting for any connections to be established
-		 */
-		pool, err := pgxpool.New(context.Background(), connectionURI)
-		if err != nil {
-			log.Fatalf("Failed to init database: %#v", err)
-		}
-
-		db = &ReplayEngineDB{
-			connPool: pool,
-		}
-	})
-	if db == nil {
-		log.Fatalf("NewDatabase() called > 1 times")
-	}
-
-	return db
-}
-
 func (db *ReplayEngineDB) GetConn(ctx context.Context) (*pgxpool.Conn, error) {
 	return db.connPool.Acquire(ctx)
 }
@@ -100,12 +75,13 @@ func (db *ReplayEngineDB) InsertCompleteSeries(ctx context.Context, series []com
 	}
 	defer tx.Rollback(ctx)
 
+	// Insert series
 	err = db.insertSeriesInTx(ctx, tx, series)
 	if err != nil {
 		return fmt.Errorf("failed to insert series: %w", err)
 	}
-
-	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
+	// Record hydration for symbol-date combo
+	db.recordHydrationInTx(ctx, tx, symbol, date)
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit tx: %w", err)
@@ -141,7 +117,7 @@ func (db *ReplayEngineDB) insertSeriesInTx(ctx context.Context, tx pgx.Tx, serie
 	return err
 }
 
-func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol, date string) error {
+func (db *ReplayEngineDB) recordHydrationInTx(ctx context.Context, tx pgx.Tx, symbol, date string) error {
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
 	_, err := tx.Exec(ctx, stmt, symbol, date)
 	if err != nil {
@@ -150,9 +126,61 @@ func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx 
 	return nil
 }
 
+// Convenience method for fetching the complete trading day for a specified date & symbol
+func (db *ReplayEngineDB) GetTradingDaySeries(
+	ctx context.Context,
+	symbol string,
+	date civil.Date,
+) ([]common.Bar, error){
+	conn, err := db.GetConn(ctx)
+	defer conn.Release()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connection: %w", err)
+	}
+	stmt := `
+		SELECT symbol, t, o, h, l, c, n, v, vw
+		FROM bars_1sec
+		WHERE t >= $1g
+		AND t <= $2
+		AND symbol = $3
+		ORDER BY t DESC
+	`
+	t1 := common.NYSEOpenUnixMilli(date)
+	t2 := common.NYSECloseUnixMilli(date)
+	rows, err := conn.Query(
+		ctx,
+		stmt,
+		t1,
+		t2,
+		symbol,
+	)
+	series := make([]common.Bar, 1)
+	var bar common.Bar
+	for rows.Next() {
+		rows.Scan(
+			&bar.Symbol,
+			&bar.T,
+			&bar.O,
+			&bar.H,
+			&bar.L,
+			&bar.C,
+			&bar.N,
+			&bar.V,
+			&bar.VW,
+		)
+		series = append(series, bar)
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("result set reading ended prematurely due to err: %w", err)
+	}
+
+	return series, nil
+}
+
 // Populates the buffer for the range timestamp [t1, t2), returns the no. bars copied into the buffer
 // - Errors if the no. rows returned in the query exceed the capacity of the buffer
-func (db *ReplayEngineDB) GetSeriesSegment(
+func (db *ReplayEngineDB) GetSeries(
 	ctx context.Context,
 	symbol string,
 	date string,
@@ -207,48 +235,6 @@ func (db *ReplayEngineDB) GetSeriesSegment(
 	}
 
 	return n, nil
-}
-
-func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol string, date civil.Date) (common.Series, error) {
-	conn, err := db.GetConn(ctx)
-	defer conn.Release()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
-	}
-
-	stmt := `
-		SELECT symbol, t, o, h, l, c, n, v, vw
-		FROM bars_1sec
-		WHERE t >= $1
-		AND t <= $2
-		AND symbol = $3
-		ORDER BY t DESC
-	`
-	rows, err := conn.Query(
-		ctx,
-		stmt,
-		common.NYSEOpenUnixMilli(date),
-		common.NYSECloseUnixMilli(date),
-		symbol,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query failed: %w", err)
-	}
-	var fn pgx.RowToFunc[common.Bar] = func(row pgx.CollectableRow) (common.Bar, error) {
-		var bar common.Bar
-		err := row.Scan(&bar.Symbol, &bar.T, &bar.O, &bar.H, &bar.L, &bar.C, &bar.N, &bar.V, &bar.VW)
-		if err != nil {
-			return common.Bar{}, err
-		}
-		return bar, nil
-	}
-	var bars common.Series
-	bars, err = pgx.CollectRows(rows, fn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect rows: %w", err)
-	}
-
-	return bars, nil
 }
 
 func (db *ReplayEngineDB) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
