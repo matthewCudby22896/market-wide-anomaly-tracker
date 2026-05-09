@@ -22,17 +22,17 @@ type SymbolThread interface {
 }
 
 type symbolThread struct {
-	id                string
-	ctx               context.Context
-	cancelCtx         context.CancelFunc
-	wg                sync.WaitGroup
-	logger            *Logger
+	id        string
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+	wg        sync.WaitGroup
+	logger    *Logger
 
-	symbol            string
-	date              civil.Date
+	symbol string
+	date   civil.Date
 
-	tickInbox         <-chan int64
-	outbox            chan<- BroadcastMessage
+	tickInbox <-chan int64
+	outbox    chan<- BroadcastMessage
 
 	db                *db.ReplayEngineDB
 	getSimulationTime func() int64
@@ -51,17 +51,17 @@ func NewSymbolThread(
 	id := fmt.Sprintf("%s-%s", symbol, date.String())
 
 	return &symbolThread{
-		id:                id,
-		ctx:               ctx,
-		cancelCtx:         cancel,
-		wg:                sync.WaitGroup{},
-		logger:            NewComponentLogger(id),
+		id:        id,
+		ctx:       ctx,
+		cancelCtx: cancel,
+		wg:        sync.WaitGroup{},
+		logger:    NewComponentLogger(id),
 
-		symbol:            symbol,
-		date:              date,
+		symbol: symbol,
+		date:   date,
 
-		tickInbox:         tickInbox,
-		outbox:            outbox,
+		tickInbox: tickInbox,
+		outbox:    outbox,
 
 		db:                db,
 		getSimulationTime: getSimulationTime,
@@ -87,7 +87,7 @@ func (t *symbolThread) Start() {
 	go func() {
 		defer t.wg.Done()
 
-		marketClose :=  common.NYSECloseUnixMilli(t.date)
+		marketClose := common.NYSECloseUnixMilli(t.date)
 
 		buffer1 := make([]common.Bar, bufferSize)
 		buffer2 := make([]common.Bar, bufferSize)
@@ -165,6 +165,7 @@ func (t *symbolThread) Start() {
 			}
 		}
 	}()
+	t.logger.LogStart()
 }
 
 // asyncPopulateBuffer fetches bars in the range [t1, t2) and loads them into the provided buffer.
@@ -176,10 +177,13 @@ func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 		// note: you can still receive from a close chan
 		defer close(done)
 
+		*buffer = (*buffer)[:cap(*buffer)]
 		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer)
 
 		// update the len to indicate no. actual, non-stale bars in the buffer
+		fmt.Println("before!")
 		*buffer = (*buffer)[:n]
+		fmt.Println("after!")
 
 		done <- err
 	}()
@@ -193,5 +197,16 @@ func (t *symbolThread) Restart() {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.ctx = ctx
 	t.cancelCtx = cancel
+
+tag:
+	for {
+		select{
+		case <-t.tickInbox:
+		default:
+			break tag
+		}
+	}
+
+
 	t.Start()
 }

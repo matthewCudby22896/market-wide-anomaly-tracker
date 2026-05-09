@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"errors"
 
 	"cloud.google.com/go/civil"
 	"github.com/jackc/pgx/v5"
@@ -185,6 +186,8 @@ func (db *ReplayEngineDB) GetFullSession(
 	return series, nil
 }
 
+var BufferTooSmallErr = errors.New("buffer too small")
+
 // Populates the buffer for the range timestamp [t1, t2), returns the no. bars copied into the buffer
 // - Errors if the no. rows returned in the query exceed the capacity of the buffer
 func (db *ReplayEngineDB) GetSeries(
@@ -248,7 +251,7 @@ func (db *ReplayEngineDB) GetSeries(
 		for rows.Next() {
 			nExtra += 1
 		}
-		return 0, fmt.Errorf("size of query result (%d rows) exceeed buffer capacity (%d)", cap(buffer)+nExtra, cap(buffer))
+		return 0, fmt.Errorf("%w: size of query result (%d rows) exceeed buffer capacity (%d)", BufferTooSmallErr, cap(buffer)+nExtra, cap(buffer))
 	}
 
 	return n, nil

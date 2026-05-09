@@ -99,24 +99,30 @@ func (s *databaseTestSuite) TestLoadHydrationState() {
 func (s *databaseTestSuite) TestGetSeries() {
 	ctx := s.T().Context()
 
+	t1 := int64(0)
+	t2 := int64(9999)
+	n := int64(500)
+	s.insertDummySeries(ctx, symbol, date, t1, t2, n)
+	s.T().Run(
+		"TestHappyGet",
+		func(t *testing.T) {
+			buffer := make([]common.Bar, 500)
+			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer)
+			s.Require().NoError(err)
+			s.Require().Equal(x, 500)
+		},
+	)
 	s.T().Run(
 		"TestErrorsWhenBufferTooSmall",
 		func(t *testing.T) {
 
-			t1 := int64(0)
-			t2 := int64(9999)
-			n := int64(500)
-			s.insertDummySeries(ctx, symbol, date, t1, t2, n)
-
-			buffer := make([]common.Bar, 200)
+			buffer := make([]common.Bar, 499)
 			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer)
-			s.Require().Equal(x, 0)
 			s.Require().Error(err)
-
-			// s.Require().ErrorIs()
+			s.Require().ErrorIs(err, db.BufferTooSmallErr)
+			s.Require().Equal(x, 0)
 		},
 	)
-
 }
 
 // Inserts n dummy ohlc Bar evenly distributed across the timestamp range [t1, t2)

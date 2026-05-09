@@ -23,6 +23,7 @@ type clock struct {
 	t              *time.Ticker
 
 	triggerRestartChan chan any
+	restartDone        chan any
 	isPausedChan       chan bool
 	subChan            chan chan<- int64
 	unsubChan          chan chan<- int64
@@ -67,6 +68,7 @@ func NewClock(
 		t:              ticker,
 
 		triggerRestartChan: make(chan any, 1024),
+		restartDone: make(chan any, 1024),
 		isPausedChan:       make(chan bool, 1024),
 		subChan:            make(chan chan<- int64, 1024),
 		unsubChan:          make(chan chan<- int64, 1024),
@@ -110,6 +112,7 @@ func (c *clock) Start() {
 				case <-c.triggerRestartChan:
 					c.isPaused.Store(true)
 					c.pullSettingsAndReset()
+					c.restartDone <- nil
 
 				case x := <-c.isPausedChan:
 					if x == true {
@@ -184,6 +187,7 @@ func (c *clock) Pause() {
 
 func (c *clock) Restart() {
 	c.triggerRestartChan <- nil
+	<- c.restartDone
 }
 
 func (c *clock) Resume() {
