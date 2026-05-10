@@ -96,10 +96,11 @@ func (c *clock) Start() {
 		SubLoop:
 			for {
 				select {
-				case pipe := <-c.subChan:
-					c.subscribers[pipe] = struct{}{}
-				case pipe := <-c.unsubChan:
-					delete(c.subscribers, pipe)
+				case ch := <-c.subChan:
+					c.subscribers[ch] = struct{}{}
+				case ch := <-c.unsubChan:
+					delete(c.subscribers, ch)
+					close(ch)
 				default:
 					break SubLoop
 				}

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	bufferSize = 300
+	bufferSize = 512
 )
 
 type SymbolThread interface {
@@ -32,6 +32,7 @@ type symbolThread struct {
 	symbol string
 	date   civil.Date
 
+	TickChan  chan int64
 	tickInbox <-chan int64
 	outbox    chan<- BroadcastMessage
 
@@ -44,7 +45,7 @@ func NewSymbolThread(
 	date civil.Date,
 	db *db.ReplayEngineDB,
 	outbox chan<- BroadcastMessage,
-	tickInbox <-chan int64,
+	tickChan chan int64,
 	getSimulationTime func() int64,
 ) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,7 +62,8 @@ func NewSymbolThread(
 		symbol: symbol,
 		date:   date,
 
-		tickInbox: tickInbox,
+		TickChan:  tickChan,
+		tickInbox: tickChan,
 		outbox:    outbox,
 
 		db:                db,
@@ -76,6 +78,7 @@ func (t *symbolThread) Shutdown() {
 }
 
 func (t *symbolThread) AsyncShutdown() {
+	t.logger.Info("async shutdown triggered")
 	go t.Shutdown()
 }
 
@@ -88,8 +91,11 @@ func (t *symbolThread) Start() {
 	go func() {
 		defer t.wg.Done()
 
+		quit := false
 		buffer1 := make([]common.Bar, bufferSize)
 		buffer2 := make([]common.Bar, bufferSize)
+
+		marketCloseTS := common.NYSECloseUnixMilli(t.date)
 
 		// bufferA points to the buffer we are currently reading from
 		bufferA := &buffer1
@@ -98,10 +104,8 @@ func (t *symbolThread) Start() {
 		bufferB := &buffer2
 
 		t1 := t.getSimulationTime()
-
 		t2 := t1 + 1000*bufferSize
 
-		// populate bufferA before beginning
 		n, err := t.db.GetSeries(
 			t.ctx,
 			t.symbol,
@@ -121,7 +125,6 @@ func (t *symbolThread) Start() {
 			return
 		}
 
-		// begin async populating bufferB
 		t1 = t2
 		t2 = t1 + 1000*bufferSize
 		bufferBReady := t.asyncPopulateBuffer(bufferB, t1, t2)
@@ -130,7 +133,6 @@ func (t *symbolThread) Start() {
 		for {
 			select {
 			case <-t.ctx.Done():
-				t.logger.Info("main loop exitingl")
 				return
 
 			case tick := <-t.tickInbox:
@@ -145,9 +147,12 @@ func (t *symbolThread) Start() {
 			}
 
 			if i == len(*bufferA) { // now at end of buffer
-				t.logger.Info("i == len(*bufferA)")
+				if quit {
+					t.logger.Info("all data streamed out, exiting streaming loop")
+					return
+				}
+
 				err := <-bufferBReady
-				t.logger.Info("bufferBReady!", "len", len(*bufferB))
 				if err != nil {
 					t.logger.Error("error occured whilst populating bufferB", "err", err)
 					log.Fatalf("error")
@@ -160,10 +165,13 @@ func (t *symbolThread) Start() {
 				t1 = t2
 				t2 = t1 + 1000*bufferSize
 
-				// begin async populating the new bufferB
-				bufferBReady = t.asyncPopulateBuffer(bufferB, t1, t2)
+				if t1 > marketCloseTS {
+					quit = true
+				} else {
+					// begin async populating the new bufferB
+					bufferBReady = t.asyncPopulateBuffer(bufferB, t1, t2)
+				}
 
-				// reset i to point to begginning of new bufferA
 				i = 0
 			}
 		}
@@ -175,7 +183,6 @@ func (t *symbolThread) Start() {
 // It returns a receive-only channel that transmits a single nil (or error) upon completion
 // Note: The caller must not access 'buffer' until the channel signals completion to avoid data races.
 func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) chan error {
-	t.logger.Info("asyncPopulateBuffer", "t1", t1, "t2", t2)
 	done := make(chan error, 1)
 	go func() {
 		// note: you can still receive from a close chan
@@ -183,8 +190,6 @@ func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 
 		*buffer = (*buffer)[:cap(*buffer)]
 		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer)
-
-		t.logger.Info("async: GetSeries() complete", "n", n)
 
 		if err != nil {
 			t.logger.Error("async: GetSeries errored", "err", err)
@@ -206,6 +211,7 @@ func (t *symbolThread) Restart() {
 	t.ctx = ctx
 	t.cancelCtx = cancel
 
+	// Clear the tickInbox
 tag:
 	for {
 		select {

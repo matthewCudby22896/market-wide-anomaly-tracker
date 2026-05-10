@@ -3,7 +3,6 @@ package test
 import (
 	"embed"
 	"encoding/gob"
-	"fmt"
 	"testing"
 	"time"
 

@@ -446,16 +446,21 @@ func (h *hub) handleUnregister(req unregisterRequest) {
 
 func (h *hub) killSymbolThread(symbol string) {
 	thread := h.symbolThreads[symbol]
+
 	h.logger.LogStopChild(thread.id)
+
+	// Trigger shutdown
 	thread.AsyncShutdown()
+
 	delete(h.symbolThreads, symbol)
+	h.clock.UnregisterPipe(thread.TickChan)
 }
 
 func (h *hub) StartTickerThread(symbol string, date civil.Date) *symbolThread {
 	h.logger.Info("StartTickerThread()!")
 	h.logger.LogStartChild(fmt.Sprintf("SymbolThread-%s", symbol))
 
-	tickPipe := make(chan int64)
+	tickChan := make(chan int64)
 
 	// 1. Init symbol thread
 	thread := NewSymbolThread(
@@ -463,12 +468,12 @@ func (h *hub) StartTickerThread(symbol string, date civil.Date) *symbolThread {
 		date,
 		h.Database,
 		h.broadcastInbox,
-		tickPipe,
+		tickChan,
 		h.clock.GetSimulationTime,
 	)
 
 	// 2. Register it with the clock s.t. it recieves ticks
-	h.clock.RegisterPipe(tickPipe)
+	h.clock.RegisterPipe(tickChan)
 
 	// 3. Keep ref in map
 	h.symbolThreads[symbol] = thread
