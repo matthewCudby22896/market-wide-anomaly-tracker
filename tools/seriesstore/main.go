@@ -16,19 +16,19 @@ import (
 	enginecommon "github.com/mcudby/mwat/components/replayengine/common"
 )
 
-func fetchSeries(date civil.Date, symbol enginecommon.Symbol) (enginecommon.Series, error) {
+func fetchSeries(date civil.Date, symbol string) ([]enginecommon.Bar, error) {
 	ctx := context.Background()
 
 	client := replayengine.NewMassiveClient()
 
 	series, err := client.FetchDayData(ctx, date, symbol)
 	if err != nil {
-		return enginecommon.Series{}, err
+		return []enginecommon.Bar{}, err
 	}
-	return enginecommon.Series(series), nil
+	return []enginecommon.Bar(series), nil
 }
 
-func storeSeries(path string, series enginecommon.Series) error {
+func storeSeries(path string, series []enginecommon.Bar) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file at `%s`: %w", path, err)
@@ -43,7 +43,7 @@ func storeSeries(path string, series enginecommon.Series) error {
 	return nil
 }
 
-func fmtFileName(date civil.Date, symbol enginecommon.Symbol) string {
+func fmtFileName(date civil.Date, symbol string) string {
 	return fmt.Sprintf("%s_%s.gob", date.String(), symbol)
 }
 
@@ -61,7 +61,7 @@ func main() {
 
 	dir := *_dir
 	date, err := civil.ParseDate(*_date)
-	symbol := enginecommon.Symbol(*_symbol)
+	symbol := string(*_symbol)
 
 	// basic validaton
 	if !common.DirExists(dir) {
