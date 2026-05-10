@@ -141,10 +141,11 @@ func (db *ReplayEngineDB) GetFullSession(
 	date civil.Date,
 ) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
-	defer conn.Release()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
+	defer conn.Release()
+
 	stmt := `
 		SELECT symbol, t, o, h, l, c, n, v, vw
 		FROM bars_1sec
@@ -263,6 +264,7 @@ func (db *ReplayEngineDB) GetHydrationStatus(ctx context.Context) ([]common.Hydr
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
+	defer conn.Release()
 
 	stmt := `SELECT symbol, date::TEXT FROM hydration_state_1sec`
 

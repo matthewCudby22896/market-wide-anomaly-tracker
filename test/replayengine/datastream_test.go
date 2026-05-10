@@ -115,10 +115,8 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
 		actualSeries[i] = bar
-		s.T().Log(bar)
-
-		fmt.Printf("%d / %d\n", i+1, n)
-		s.T().Logf("%d / %d", i+1, n)
+		// s.T().Log(bar)
+		// s.T().Logf("%d / %d", i+1, n)
 	}
 
 	// AND the streamed out data is identical to the data
