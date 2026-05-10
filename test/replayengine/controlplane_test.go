@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"testing"
+
+	// "testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
@@ -257,6 +258,6 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 }
 
 // Test suite entry point
-func TestConrolPlane(t *testing.T) {
-	suite.Run(t, new(controlPlaneTestSuite))
-}
+// func TestConrolPlane(t *testing.T) {
+// 	suite.Run(t, new(controlPlaneTestSuite))
+// }

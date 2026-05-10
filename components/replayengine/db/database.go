@@ -2,10 +2,10 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
-	"errors"
 
 	"cloud.google.com/go/civil"
 	"github.com/jackc/pgx/v5"
@@ -202,6 +202,7 @@ func (db *ReplayEngineDB) GetSeries(
 	if err != nil {
 		return 0, err
 	}
+	defer conn.Release()
 
 	stmt := `
 		SELECT symbol, t, o, h, l, c, n, v, vw
