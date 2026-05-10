@@ -105,20 +105,18 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func validateSettings(payload ReplayEngineSettings) (*simulationSettings, error) {
+func validateSettings(payload ReplayEngineSettings) (SimulationConfig, error) {
 	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
-		return nil, err
+		return SimulationConfig{}, err
 	}
 
 	timescale, err := validateTimeScale(payload.Timescale)
 	if err != nil {
-		return nil, err
+		return SimulationConfig{}, err
 	}
 
-	settings := &simulationSettings{timescale, date}
-
-	return settings, nil
+	return SimulationConfig{timescale, date}, nil
 }
 
 func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +157,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	successWithMsg(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
-func validateHydrateRequest(req hydrationRequest) (common.Symbol, civil.Date, error) {
+func validateHydrateRequest(req hydrationRequest) (string, civil.Date, error) {
 	date, err := validateDateStr(req.Date)
 	if err != nil {
 		return "", civil.Date{}, err
@@ -167,7 +165,7 @@ func validateHydrateRequest(req hydrationRequest) (common.Symbol, civil.Date, er
 	if req.Symbol == "" {
 		return "", civil.Date{}, fmt.Errorf("missing/empty field `symbol`")
 	}
-	symbol := common.Symbol(req.Symbol)
+	symbol := string(req.Symbol)
 
 	return symbol, date, nil
 }

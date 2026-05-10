@@ -3,7 +3,6 @@ package test
 import (
 	"embed"
 	"encoding/gob"
-	"slices"
 	"testing"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/mcudby/mwat/components/replayengine"
-	enginecommon "github.com/mcudby/mwat/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/test/replayengine/utils"
 )
@@ -41,7 +40,7 @@ func (s *datastreamTestSuite) SetupSuite() {
 
 	t.Cleanup(cleanup)
 
-	s.replayenginedb = db.RequireNewDatabase(s.database.GetConnectionURI())
+	s.replayenginedb = db.EstablishDBConnection(s.T().Context(), s.database.GetConnectionURI())
 	s.replayenginedb.ApplyMigrations()
 
 	s.replayengine = utils.RequireInitReplayEngine(
@@ -64,21 +63,20 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	s.Require().NoError(err)
 	defer f.Close()
 
-	var expectedSeries enginecommon.Series
+	var expectedSeries []common.Bar
 	gob.NewDecoder(f).Decode(&expectedSeries)
 
 	// GIVEN the series for QQQ on 2025-03-20 is stored in
 	// the replayengine's db
-	symbol := enginecommon.Symbol("QQQ")
-	date, err := civil.ParseDate("2025-03-20")
-	s.Require().NoError(err)
+	symbol := "QQQ"
+	dateStr := "2025-03-20"
+	civilDate, _ := civil.ParseDate(dateStr)
 
-	err = s.replayenginedb.StoreSeries(ctx, expectedSeries, symbol, date)
+	err = s.replayenginedb.InsertFullSession(ctx, expectedSeries, symbol, dateStr)
 	s.Require().NoError(err)
 
 	// verify series has been correctly stored
-	series, err := s.replayenginedb.GetSeries(ctx, symbol, date)
-	slices.Reverse(series)
+	series, err := s.replayenginedb.GetFullSession(ctx, symbol, civilDate)
 	s.Require().Equal(expectedSeries, series)
 
 	// AND the replayengine is running
@@ -110,9 +108,9 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 
 	// THEN the replayengine streams out every datapoint
 	// in chronological order
-	actualSeries := make(enginecommon.Series, n)
+	actualSeries := make([]common.Bar, n)
 	for i := 0; i < n; i++ {
-		var bar enginecommon.Bar
+		var bar common.Bar
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
 		actualSeries[i] = bar

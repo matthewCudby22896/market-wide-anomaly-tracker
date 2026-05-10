@@ -3,6 +3,7 @@ package replayengine
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"cloud.google.com/go/civil"
@@ -10,55 +11,74 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
+const (
+	bufferSize = 512
+)
+
 type SymbolThread interface {
 	LifeCycle
 	AsyncShutdown()
-	GetTickPipe() chan<- int64
 	SetOutbox(outbox chan<- BroadcastMessage)
 	Restart()
 }
 
 type symbolThread struct {
-	ID        string
-	Ctx       context.Context
-	CancelCtx context.CancelFunc
+	id        string
+	ctx       context.Context
+	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	symbol    common.Symbol
-	Date      civil.Date
 	logger    *Logger
+
+	symbol string
+	date   civil.Date
+
+	TickChan  chan int64
+	tickInbox <-chan int64
 	outbox    chan<- BroadcastMessage
-	ticks     chan int64
-	db        *db.ReplayEngineDB
+
+	db                *db.ReplayEngineDB
+	getSimulationTime func() int64
 }
 
-func NewSymbolThread(owner Hub, symbol common.Symbol, date civil.Date, db *db.ReplayEngineDB) *symbolThread {
+func NewSymbolThread(
+	symbol string,
+	date civil.Date,
+	db *db.ReplayEngineDB,
+	outbox chan<- BroadcastMessage,
+	tickChan chan int64,
+	getSimulationTime func() int64,
+) *symbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	id := fmt.Sprintf("%s-%s", symbol, date.String())
 
 	return &symbolThread{
-		ID:        id,
-		Ctx:       ctx,
-		CancelCtx: cancel,
+		id:        id,
+		ctx:       ctx,
+		cancelCtx: cancel,
 		wg:        sync.WaitGroup{},
 		logger:    NewComponentLogger(id),
-		symbol:    symbol,
-		Date:      date,
-		ticks:     make(chan int64),
-		db:        db,
-		outbox:    nil, // Initialised post-hoc, by parent
+
+		symbol: symbol,
+		date:   date,
+
+		TickChan:  tickChan,
+		tickInbox: tickChan,
+		outbox:    outbox,
+
+		db:                db,
+		getSimulationTime: getSimulationTime,
 	}
 }
 
 func (t *symbolThread) Shutdown() {
-	// Shutdown self
-	t.CancelCtx()
-
+	t.cancelCtx()
 	t.wg.Wait()
 	t.logger.LogShutdown()
 }
 
 func (t *symbolThread) AsyncShutdown() {
+	t.logger.Info("async shutdown triggered")
 	go t.Shutdown()
 }
 
@@ -71,61 +91,135 @@ func (t *symbolThread) Start() {
 	go func() {
 		defer t.wg.Done()
 
-		// Currently returns in DESC order
-		series, err := t.db.GetSeries(t.Ctx, t.symbol, t.Date)
+		quit := false
+		buffer1 := make([]common.Bar, bufferSize)
+		buffer2 := make([]common.Bar, bufferSize)
+
+		marketCloseTS := common.NYSECloseUnixMilli(t.date)
+
+		// bufferA points to the buffer we are currently reading from
+		bufferA := &buffer1
+
+		// bufferB points to the buffer we are currently writing to
+		bufferB := &buffer2
+
+		t1 := t.getSimulationTime()
+		t2 := t1 + 1000*bufferSize
+
+		n, err := t.db.GetSeries(
+			t.ctx,
+			t.symbol,
+			t.date.String(),
+			t1,
+			t2,
+			*bufferA,
+		)
+		*bufferA = (*bufferA)[:n]
+
 		if err != nil {
-			t.logger.Error("failed to fetch data for symbol", "symbol", t.symbol, "error", err)
-			t.Shutdown()
+			t.logger.Error("failed to populate initial buffer", "err", err)
+			return
+		}
+		if n == 0 {
+			t.logger.Error("failed to populate initial buffer", "num_bars", n)
 			return
 		}
 
-		// Wait for a tick
-		tick := <-t.ticks
+		t1 = t2
+		t2 = t1 + 1000*bufferSize
+		bufferBReady := t.asyncPopulateBuffer(bufferB, t1, t2)
 
-		// Trim out-of-date bars
-		for i := len(series) - 1; i >= 0; i-- {
-			// t.logger.Info("\n", "series[i].T", series[i].T, "tick", tick, "i", i)
-			if series[i].T >= tick {
-				series = series[:i+1]
-				break
-			}
-		}
-
+		i := 0
 		for {
 			select {
-			case <-t.Ctx.Done():
+			case <-t.ctx.Done():
 				return
 
-			case tick = <-t.ticks:
-				// Send all bars that occured before the tick
-				for len(series) > 0 && series[len(series)-1].T <= tick {
-					msg := BroadcastMessage{
-						t.symbol,
-						series[len(series)-1],
+			case tick := <-t.tickInbox:
+				// whilst bar occured before current tick, send it
+				for i < len(*bufferA) && (*bufferA)[i].T <= tick {
+					t.outbox <- BroadcastMessage{
+						(*bufferA)[i].Symbol,
+						(*bufferA)[i],
 					}
-
-					series = series[:len(series)-1]
-
-					t.outbox <- msg
+					i += 1
 				}
+			}
+
+			if i == len(*bufferA) { // now at end of buffer
+				if quit {
+					t.logger.Info("all data streamed out, exiting streaming loop")
+					return
+				}
+
+				err := <-bufferBReady
+				if err != nil {
+					t.logger.Error("error occured whilst populating bufferB", "err", err)
+					log.Fatalf("error")
+				}
+
+				tmp := bufferA
+				bufferA = bufferB
+				bufferB = tmp
+
+				t1 = t2
+				t2 = t1 + 1000*bufferSize
+
+				if t1 > marketCloseTS {
+					quit = true
+				} else {
+					// begin async populating the new bufferB
+					bufferBReady = t.asyncPopulateBuffer(bufferB, t1, t2)
+				}
+
+				i = 0
 			}
 		}
 	}()
+	t.logger.LogStart()
 }
 
-func (t *symbolThread) GetTickPipe() chan<- int64 {
-	return t.ticks
-}
+// asyncPopulateBuffer fetches bars in the range [t1, t2) and loads them into the provided buffer.
+// It returns a receive-only channel that transmits a single nil (or error) upon completion
+// Note: The caller must not access 'buffer' until the channel signals completion to avoid data races.
+func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) chan error {
+	done := make(chan error, 1)
+	go func() {
+		// note: you can still receive from a close chan
+		defer close(done)
 
-func (t *symbolThread) SetOutbox(outbox chan<- BroadcastMessage) {
-	t.outbox = outbox
+		*buffer = (*buffer)[:cap(*buffer)]
+		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer)
+
+		if err != nil {
+			t.logger.Error("async: GetSeries errored", "err", err)
+		}
+
+		// update the len to indicate no. actual, non-stale bars in the buffer
+		*buffer = (*buffer)[:n]
+
+		done <- err
+	}()
+
+	return done
 }
 
 func (t *symbolThread) Restart() {
 	t.Shutdown()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Ctx = ctx
-	t.CancelCtx = cancel
+	t.ctx = ctx
+	t.cancelCtx = cancel
+
+	// Clear the tickInbox
+tag:
+	for {
+		select {
+		case <-t.tickInbox:
+		default:
+			break tag
+		}
+	}
+
 	t.Start()
 }

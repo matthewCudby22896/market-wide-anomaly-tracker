@@ -8,7 +8,6 @@ POST http://localhost:8080/simulation/pause
 POST http://localhost:8080/simulation/resume
 
 ### Restart
-
 POST http://localhost:8080/simulation/restart
 
 # Symbol Hydration
@@ -52,7 +51,7 @@ POST http://localhost:8080/control/settings
 Content-Type: application/json
 
 {
-    "timescale": 5.0,
+    "timescale": 3600.0,
     "simulation-date": "2025-03-20"
 }
 

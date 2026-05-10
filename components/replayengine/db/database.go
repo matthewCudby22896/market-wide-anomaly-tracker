@@ -2,9 +2,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"cloud.google.com/go/civil"
@@ -19,7 +19,19 @@ type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
 }
 
-var once sync.Once
+const BaseTableName = "bars_1sec"
+
+var ColNames = []string{
+	"symbol",
+	"t",
+	"o",
+	"h",
+	"l",
+	"c",
+	"n",
+	"v",
+	"vw",
+}
 
 func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
 	pool, err := pgxpool.New(ctx, connectionURI)
@@ -29,6 +41,7 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 
 	timeout := time.After(20 * time.Second)
 	for {
+		fmt.Print("attempting to establish connection to database...\n")
 		_, err := pool.Acquire(ctx)
 		if err == nil {
 			break
@@ -36,6 +49,8 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 		select {
 		default:
 			time.Sleep(500 * time.Millisecond)
+		case <-ctx.Done():
+			return nil
 		case <-timeout:
 			log.Fatalf("failed to ping database within allotted time")
 		}
@@ -46,35 +61,11 @@ func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEng
 	}
 }
 
-func RequireNewDatabase(connectionURI string) *ReplayEngineDB {
-	var db *ReplayEngineDB
-	once.Do(func() {
-		/* A pool returns without waiting for any connections to be established
-		 */
-		pool, err := pgxpool.New(context.Background(), connectionURI)
-		if err != nil {
-			log.Fatalf("Failed to init database: %#v", err)
-		}
-
-		db = &ReplayEngineDB{
-			connPool: pool,
-		}
-	})
-	if db == nil {
-		log.Fatalf("NewDatabase() called > 1 times")
-	}
-
-	return db
-}
-
 func (db *ReplayEngineDB) GetConn(ctx context.Context) (*pgxpool.Conn, error) {
-	conn, err := db.connPool.Acquire(ctx)
-	return conn, err
+	return db.connPool.Acquire(ctx)
 }
 
-// Note - future optimisation: This could likely be quicker if I implement the
-// CopyFromSource interface (to avoid buffering in memory)
-func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series, symbol common.Symbol, date civil.Date) error {
+func (db *ReplayEngineDB) InsertFullSession(ctx context.Context, series []common.Bar, symbol, date string) error {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
@@ -87,42 +78,73 @@ func (db *ReplayEngineDB) StoreSeries(ctx context.Context, series common.Series,
 	}
 	defer tx.Rollback(ctx)
 
-	n, err := tx.CopyFrom(
-		ctx,
-		pgx.Identifier{"bars_1sec"},
-		series.ColNames(),
-		pgx.CopyFromRows(series.ToRows()),
-	)
+	// Insert series
+	err = db.insertSeriesInTx(ctx, tx, series)
 	if err != nil {
-		return fmt.Errorf("failed to bulk insert: %w", err)
+		return fmt.Errorf("failed to insert series: %w", err)
 	}
-	if n != int64(len(series)) {
-		return fmt.Errorf("unexpected copy count `%d` expected `%d`", n, len(series))
+	// Record hydration for symbol-date combo
+	if err := db.recordHydrationInTx(ctx, tx, symbol, date); err != nil {
+		return fmt.Errorf("failed to record hydration: %w", err)
 	}
 
-	db.updateHydrationStateTableInTx(ctx, tx, symbol, date)
-
-	if err := tx.Commit(ctx); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit tx: %w", err)
 	}
 	return nil
 }
 
-func (db *ReplayEngineDB) updateHydrationStateTableInTx(ctx context.Context, tx pgx.Tx, symbol common.Symbol, date civil.Date) error {
+func (db *ReplayEngineDB) insertSeriesInTx(ctx context.Context, tx pgx.Tx, series []common.Bar) error {
+	n, err := tx.CopyFrom(
+		ctx,
+		pgx.Identifier{BaseTableName},
+		ColNames,
+		pgx.CopyFromSlice(
+			len(series),
+			func(i int) ([]any, error) {
+				return []any{
+					series[i].Symbol,
+					series[i].T,
+					series[i].O,
+					series[i].H,
+					series[i].L,
+					series[i].C,
+					series[i].N,
+					series[i].V,
+					series[i].VW,
+				}, nil
+			},
+		),
+	)
+	if err != nil {
+		return err
+	}
+	if n != int64(len(series)) {
+		return fmt.Errorf("no. rows copied != no. bars in series")
+	}
+	return err
+}
+
+func (db *ReplayEngineDB) recordHydrationInTx(ctx context.Context, tx pgx.Tx, symbol, date string) error {
 	stmt := "INSERT INTO hydration_state_1sec (symbol, date) VALUES ($1, $2)"
-	_, err := tx.Exec(ctx, stmt, symbol, date.String())
+	_, err := tx.Exec(ctx, stmt, symbol, date)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol common.Symbol, date civil.Date) (common.Series, error) {
+// Convenience method for fetching the complete trading day for a specified date & symbol
+func (db *ReplayEngineDB) GetFullSession(
+	ctx context.Context,
+	symbol string,
+	date civil.Date,
+) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
-	defer conn.Release()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
+	defer conn.Release()
 
 	stmt := `
 		SELECT symbol, t, o, h, l, c, n, v, vw
@@ -130,40 +152,119 @@ func (db *ReplayEngineDB) GetSeries(ctx context.Context, symbol common.Symbol, d
 		WHERE t >= $1
 		AND t <= $2
 		AND symbol = $3
-		ORDER BY t DESC
+		ORDER BY t ASC
+	`
+	t1 := common.NYSEOpenUnixMilli(date)
+	t2 := common.NYSECloseUnixMilli(date)
+	rows, err := conn.Query(
+		ctx,
+		stmt,
+		t1,
+		t2,
+		symbol,
+	)
+	series := make([]common.Bar, 0)
+	var bar common.Bar
+	for rows.Next() {
+		rows.Scan(
+			&bar.Symbol,
+			&bar.T,
+			&bar.O,
+			&bar.H,
+			&bar.L,
+			&bar.C,
+			&bar.N,
+			&bar.V,
+			&bar.VW,
+		)
+		series = append(series, bar)
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("result set reading ended prematurely due to err: %w", err)
+	}
+
+	return series, nil
+}
+
+var BufferTooSmallErr = errors.New("buffer too small")
+
+// Populates the buffer for the range timestamp [t1, t2), returns the no. bars copied into the buffer
+// - Errors if the no. rows returned in the query exceed the capacity of the buffer
+func (db *ReplayEngineDB) GetSeries(
+	ctx context.Context,
+	symbol string,
+	date string,
+	t1 int64,
+	t2 int64,
+	buffer []common.Bar,
+) (int, error) {
+	conn, err := db.GetConn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Release()
+
+	stmt := `
+		SELECT symbol, t, o, h, l, c, n, v, vw
+		FROM bars_1sec
+		WHERE t >= $1
+		AND t < $2
+		AND symbol = $3
+		ORDER BY t ASC
 	`
 	rows, err := conn.Query(
 		ctx,
 		stmt,
-		common.NYSEOpenUnixMilli(date),
-		common.NYSECloseUnixMilli(date),
+		t1,
+		t2,
 		symbol,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query failed: %w", err)
+		return 0, fmt.Errorf("query failed: %w", err)
 	}
-	var fn pgx.RowToFunc[common.Bar] = func(row pgx.CollectableRow) (common.Bar, error) {
-		var bar common.Bar
-		err := row.Scan(&bar.Symbol, &bar.T, &bar.O, &bar.H, &bar.L, &bar.C, &bar.N, &bar.V, &bar.VW)
-		if err != nil {
-			return common.Bar{}, err
+	defer rows.Close()
+
+	n := 0
+	for i := range cap(buffer) {
+		if rows.Next() {
+			rows.Scan(
+				&buffer[i].Symbol,
+				&buffer[i].T,
+				&buffer[i].O,
+				&buffer[i].H,
+				&buffer[i].L,
+				&buffer[i].C,
+				&buffer[i].N,
+				&buffer[i].V,
+				&buffer[i].VW,
+			)
+			n += 1
+		} else {
+			err := rows.Err()
+			if err != nil {
+				return 0, fmt.Errorf("result set reading ended prematurely due to err: %w", err)
+			}
 		}
-		return bar, nil
-	}
-	var bars common.Series
-	bars, err = pgx.CollectRows(rows, fn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect rows: %w", err)
 	}
 
-	return bars, nil
+	if rows.Next() {
+		nExtra := 1
+		for rows.Next() {
+			nExtra += 1
+		}
+		return 0, fmt.Errorf("%w: size of query result (%d rows) exceeed buffer capacity (%d)", BufferTooSmallErr, cap(buffer)+nExtra, cap(buffer))
+	}
+
+	return n, nil
 }
 
-func (db *ReplayEngineDB) LoadHydrationState(ctx context.Context) ([]common.HydrationStatusRow, error) {
+func (db *ReplayEngineDB) GetHydrationStatus(ctx context.Context) ([]common.HydrationStatusRow, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
+	defer conn.Release()
 
 	stmt := `SELECT symbol, date::TEXT FROM hydration_state_1sec`
 

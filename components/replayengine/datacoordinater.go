@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"cloud.google.com/go/civil"
-	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 )
 
@@ -25,9 +24,9 @@ const (
 type DataCoordinator interface {
 	LifeCycle
 	GetID() string
-	IsReady(t common.Symbol, d civil.Date) bool
+	IsReady(t string, d civil.Date) bool
 	SetOutbox(chan any)
-	HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) error
+	HydrateSymbol(ctx context.Context, symbol string, date civil.Date) error
 }
 
 // dataCoordinator implements the DataCoordinater interface
@@ -43,32 +42,33 @@ type dataCoordinator struct {
 
 	// Internal state
 	statusMapMu sync.Mutex
-	statusMap   map[string]map[common.Symbol]DataAvailability
+	statusMap   map[string]map[string]DataAvailability
 
 	// Internal channels
 	dataQueryChan chan dataQuery
-	outbox        chan any
+	outbox        chan<- any
 }
 
 // Structs for internal use:
 type dataQuery struct {
-	Symbol common.Symbol
+	Symbol string
 	date   civil.Date
 }
 
 // Structs for external messaging
 type hydrationSuccess struct {
-	Symbol common.Symbol
+	Symbol string
 	Date   civil.Date
 }
 
 type hydrationFailure struct {
-	Symbol common.Symbol
+	Symbol string
 	Date   civil.Date
 }
 
-func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
+func NewDataCoordinator(database *db.ReplayEngineDB, outbox chan<- any) *dataCoordinator {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &dataCoordinator{
 		ID:            dataCoordinatorID,
 		Ctx:           ctx,
@@ -78,9 +78,9 @@ func NewDataCoordinator(database *db.ReplayEngineDB) *dataCoordinator {
 		database:      database,
 		massiveClient: NewMassiveClient(),
 		statusMapMu:   sync.Mutex{},
-		statusMap:     make(map[string]map[common.Symbol]DataAvailability),
+		statusMap:     make(map[string]map[string]DataAvailability),
 		dataQueryChan: make(chan dataQuery, 1024),
-		outbox:        nil, // Assigned post-hoc (by parent)
+		outbox:        outbox,
 	}
 }
 
@@ -119,7 +119,7 @@ func (c *dataCoordinator) Start() {
 }
 
 func (c *dataCoordinator) InitStatusMap() {
-	state, err := c.database.LoadHydrationState(c.Ctx)
+	state, err := c.database.GetHydrationStatus(c.Ctx)
 	if err != nil {
 		c.logger.Error("failed to load hydration state", "error", err)
 	}
@@ -149,7 +149,7 @@ var AlreadyHydratedErr error = errors.New("symbol is already hydrated")
 var AlreadyHydratingErr error = errors.New("symbol is currently hydrating")
 
 // HydrateSymbol fetches and stores the data series for a given symbol-date combination
-func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbol, date civil.Date) (err error) {
+func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol string, date civil.Date) (err error) {
 	dateStr := date.String()
 
 	err = func() error {
@@ -181,7 +181,7 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbo
 		return fmt.Errorf("symbol hydration failed for `%s-%s`: %w", symbol, date, err)
 	}
 
-	err = c.database.StoreSeries(ctx, bars, symbol, date)
+	err = c.database.InsertFullSession(ctx, bars, symbol, date.String())
 	if err != nil {
 		return fmt.Errorf("failed to store series for `%s-%s`: %w", symbol, date, err)
 	}
@@ -190,7 +190,7 @@ func (c *dataCoordinator) HydrateSymbol(ctx context.Context, symbol common.Symbo
 	return
 }
 
-func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
+func (c *dataCoordinator) HydrationTask(symbol string, date civil.Date) {
 	defer c.wg.Done()
 
 	ctx := context.WithoutCancel(c.Ctx)
@@ -211,7 +211,7 @@ func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 		c.outbox <- hydrationFailure{symbol, date}
 	}
 
-	err = c.database.StoreSeries(ctx, bars, symbol, date)
+	err = c.database.InsertFullSession(ctx, bars, symbol, date.String())
 	if err != nil {
 		c.logger.Fatal(
 			"failed to store fetched ohlc bars",
@@ -230,11 +230,11 @@ func (c *dataCoordinator) HydrationTask(symbol common.Symbol, date civil.Date) {
 	c.outbox <- hydrationSuccess{symbol, date}
 }
 
-func (c *dataCoordinator) getStateWithLock(symbol common.Symbol, date string) DataAvailability {
+func (c *dataCoordinator) getStateWithLock(symbol string, date string) DataAvailability {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[common.Symbol]DataAvailability)
+		c.statusMap[date] = make(map[string]DataAvailability)
 	}
 	state, ok := c.statusMap[date][symbol]
 	if !ok {
@@ -243,9 +243,9 @@ func (c *dataCoordinator) getStateWithLock(symbol common.Symbol, date string) Da
 	return state
 }
 
-func (c *dataCoordinator) getStateWOLock(symbol common.Symbol, date string) DataAvailability {
+func (c *dataCoordinator) getStateWOLock(symbol string, date string) DataAvailability {
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[common.Symbol]DataAvailability)
+		c.statusMap[date] = make(map[string]DataAvailability)
 	}
 	state, ok := c.statusMap[date][symbol]
 	if !ok {
@@ -254,16 +254,16 @@ func (c *dataCoordinator) getStateWOLock(symbol common.Symbol, date string) Data
 	return state
 }
 
-func (c *dataCoordinator) setState(ticker common.Symbol, date string, status DataAvailability) {
+func (c *dataCoordinator) setState(ticker string, date string, status DataAvailability) {
 	c.statusMapMu.Lock()
 	defer c.statusMapMu.Unlock()
 	if _, ok := c.statusMap[date]; !ok {
-		c.statusMap[date] = make(map[common.Symbol]DataAvailability)
+		c.statusMap[date] = make(map[string]DataAvailability)
 	}
 	c.statusMap[date][ticker] = status
 }
 
-func (c *dataCoordinator) IsReady(t common.Symbol, d civil.Date) bool {
+func (c *dataCoordinator) IsReady(t string, d civil.Date) bool {
 	state := c.getStateWithLock(t, d.String())
 
 	if state == READY {

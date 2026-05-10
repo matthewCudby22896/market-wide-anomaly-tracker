@@ -8,9 +8,6 @@ import (
 	"testing"
 	"time"
 
-	// "github.com/jackc/pgx/v5/pgxpool"
-	// "github.com/stretchr/testify/suite"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
