@@ -1,4 +1,4 @@
-package replayengine
+package massiveclient
 
 import (
 	"context"
@@ -12,58 +12,52 @@ import (
 	"github.com/massive-com/client-go/v3/rest"
 	"github.com/massive-com/client-go/v3/rest/gen"
 	"github.com/mcudby/mwat/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/logging"
 )
 
-/*
-	Requirements:
+const clientID = "massive-client"
 
-	- Must stay under 100 requests per second
-*/
-
-const massiveClientID = "massive-client"
-
-type MassiveClient interface {
-	LifeCycle
-	FetchDayData(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error)
-}
-
-type massiveClient struct {
+type client struct {
 	ID               string
 	Ctx              context.Context
 	CancelCtx        context.CancelFunc
 	wg               sync.WaitGroup
 	RequestTokenChan chan struct{}
-	logger           *Logger
+	logger           *logging.Logger
 	client           *rest.Client
 }
 
-func NewMassiveClient() *massiveClient {
+func NewMassiveClient() *client {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	API_KEY := os.Getenv("MASSIVE_API_KEY")
+	ApiKey := os.Getenv("MASSIVE_API_KEY")
 
-	if API_KEY == "" {
+	if ApiKey == "" {
 		log.Fatal("MASSIVE_API_KEY environment variable not set")
 	}
 
-	client := rest.NewWithOptions(
-		API_KEY,
+	restClient := rest.NewWithOptions(
+		ApiKey,
 		rest.WithTrace(false),
 		rest.WithPagination(true),
 	)
 
-	return &massiveClient{
-		ID:               massiveClientID,
+	return &client{
+		ID:               clientID,
 		Ctx:              ctx,
 		CancelCtx:        cancel,
 		wg:               sync.WaitGroup{},
 		RequestTokenChan: make(chan struct{}, 5),
-		logger:           NewComponentLogger(massiveClientID),
-		client:           client,
+		logger:           logging.NewComponentLogger(clientID),
+		client:           restClient,
 	}
 }
 
-func (c *massiveClient) Start() {
+func (c *client) GetID() string {
+	return c.ID
+}
+
+func (c *client) Start() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -85,13 +79,13 @@ func (c *massiveClient) Start() {
 	c.logger.LogStart()
 }
 
-func (c *massiveClient) Shutdown() {
+func (c *client) Shutdown() {
 	c.CancelCtx()
 	c.wg.Wait()
 	c.logger.LogShutdown()
 }
 
-func (c *massiveClient) FetchDayData(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error) {
+func (c *client) FetchTradingSession(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error) {
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",

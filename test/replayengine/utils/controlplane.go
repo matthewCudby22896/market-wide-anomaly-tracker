@@ -41,7 +41,7 @@ func RequireRestartSimulation(t *testing.T) {
 	t.Log("replayengine resumed")
 }
 
-func RequireUpdateSettings(t *testing.T, req replayengine.ReplayEngineSettings) {
+func RequireUpdateSettings(t *testing.T, req replayengine.ConfigMessage) {
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 

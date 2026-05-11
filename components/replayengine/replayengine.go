@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/mcudby/mwat/components/replayengine/db"
+	"github.com/mcudby/mwat/components/replayengine/wsclient"
 )
 
 type ReplayEngineServer interface {
@@ -126,7 +127,7 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 	}
 
 	// 2. Create a new client instance
-	client := NewClient(c, s.Hub)
+	client := wsclient.NewClient(c, s.Hub.GetInbox())
 
 	// 3. Register it with the Hub, the Hub will handle its lifecycle
 	s.Hub.RegisterClient(client)

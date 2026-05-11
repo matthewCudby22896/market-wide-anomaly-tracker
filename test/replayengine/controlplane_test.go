@@ -216,7 +216,7 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	cancel := s.replayengine.RequireStartReplayEngine(t)
 	t.Cleanup(cancel)
 
-	expectedInitial := replayengine.ReplayEngineSettings{
+	expectedInitial := replayengine.ConfigMessage{
 		Timescale:      replayengine.DefaultTimescale,
 		SimulationDate: replayengine.DefaultDay.String(),
 	}
@@ -226,13 +226,13 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
-	var dst replayengine.ReplayEngineSettings
+	var dst replayengine.ConfigMessage
 	err = json.NewDecoder(resp.Body).Decode(&dst)
 	s.Require().NoError(err)
 	s.Equal(expectedInitial, dst)
 
 	// GIVEN an Update settings request is made
-	updatedSettings := replayengine.ReplayEngineSettings{
+	updatedSettings := replayengine.ConfigMessage{
 		Timescale:      10.0,
 		SimulationDate: "2026-01-01",
 	}
@@ -251,7 +251,7 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	defer finalResp.Body.Close()
 
 	// THEN the retrieved settings match those sent in the Update request
-	var finalSettings replayengine.ReplayEngineSettings
+	var finalSettings replayengine.ConfigMessage
 	err = json.NewDecoder(finalResp.Body).Decode(&finalSettings)
 	s.Require().NoError(err)
 	s.Equal(updatedSettings, finalSettings)

@@ -1,16 +1,18 @@
-package replayengine
+package logging
 
 import (
 	"log/slog"
 	"os"
 )
 
+const (
+	keyComponent = "component-id"
+	keyChild = "child-id"
+)
+
 type Logger struct {
 	slog.Logger
 }
-
-const keyComponent = "component-id"
-const keyChild = "child-id"
 
 func NewComponentLogger(componentID string) *Logger {
 	componentAttr := slog.String(keyComponent, componentID)

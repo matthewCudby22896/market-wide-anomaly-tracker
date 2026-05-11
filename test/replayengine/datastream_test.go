@@ -86,7 +86,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	// AND the simulation settings are set to the correct day with a high timescale
 	utils.RequireUpdateSettings(
 		t,
-		replayengine.ReplayEngineSettings{
+		replayengine.ConfigMessage{
 			Timescale:      3600.0,
 			SimulationDate: "2025-03-20",
 		},

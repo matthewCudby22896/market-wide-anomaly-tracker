@@ -11,17 +11,8 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/mcudby/mwat/components/replayengine/common"
+	coord "github.com/mcudby/mwat/components/replayengine/hydrationmanager"
 )
-
-type ReplayEngineSettings struct {
-	Timescale      float32 `json:"timescale"`
-	SimulationDate string  `json:"simulation-date"`
-}
-
-type hydrationRequest struct {
-	Symbol string `json:"symbol"`
-	Date   string `json:"date"`
-}
 
 func (s *replayEngineServer) handlePing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
@@ -66,7 +57,7 @@ func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Reques
 func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		payload := ReplayEngineSettings{}
+		payload := ConfigMessage{}
 		err := Decode(r.Body, &payload)
 		if err != nil {
 			err := fmt.Errorf("failed to marshal request body: %w", err)
@@ -90,7 +81,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		settings := s.Hub.GetSimulationSettings()
 
-		payload := ReplayEngineSettings{
+		payload := ConfigMessage{
 			Timescale:      settings.Timescale,
 			SimulationDate: settings.Date.String(),
 		}
@@ -105,7 +96,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func validateSettings(payload ReplayEngineSettings) (SimulationConfig, error) {
+func validateSettings(payload ConfigMessage) (SimulationConfig, error) {
 	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
 		return SimulationConfig{}, err
@@ -128,7 +119,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	body := hydrationRequest{}
+	body := HydrationRequest{}
 	err := Decode(r.Body, &body)
 	if err != nil {
 		errorWithMsg(w, "request body was not in expected form", http.StatusBadRequest)
@@ -144,10 +135,12 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	err = s.Hub.HydrateSymbol(ctx, symbol, date)
 	if err != nil {
 		switch {
-		case errors.Is(err, AlreadyHydratedErr):
+		case errors.Is(err, coord.AlreadyHydratedErr):
 			errorWithMsg(w, "symbol is already hydrated", http.StatusBadRequest)
-		case errors.Is(err, AlreadyHydratingErr):
+
+		case errors.Is(err, coord.AlreadyHydratingErr):
 			errorWithMsg(w, "symbol is already currently hydrating", http.StatusBadRequest)
+
 		default:
 			errorWithMsg(w, "internal server error", http.StatusInternalServerError)
 		}
@@ -157,7 +150,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	successWithMsg(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
-func validateHydrateRequest(req hydrationRequest) (string, civil.Date, error) {
+func validateHydrateRequest(req HydrationRequest) (string, civil.Date, error) {
 	date, err := validateDateStr(req.Date)
 	if err != nil {
 		return "", civil.Date{}, err

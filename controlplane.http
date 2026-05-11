@@ -27,7 +27,7 @@ POST http://localhost:8080/control/hydrate
 Content-Type: application/json
 
 {
-    "symbol": "NVDA",
+    "symbol": "QQQ" ,
     "date": "2025-03-20"
 }
 

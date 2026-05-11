@@ -7,19 +7,19 @@ import (
 	"cloud.google.com/go/civil"
 )
 
-const WS_SOCKET = ":8080"
-
-const DB_URL string = "postgres://postgres:password@localhost:6543/postgres?sslmode=disable"
+const (
+	DefaultPostgresDB = "postgres"
+	DefaultPostgresPassword = "password"
+)
 
 func fmtDBUrl(url string) string {
 	database := os.Getenv("POSTGRES_DB")
 	if database == "" {
-		database = "postgres"
+		database = DefaultPostgresDB
 	}
-
 	password := os.Getenv("POSTGRES_PASSWORD")
 	if password == "" {
-		password = "password"
+		password = DefaultPostgresPassword
 	}
 
 	return fmt.Sprintf("postgres://%s:%s@%s/postgres?sslmode=disable", database, password, url)

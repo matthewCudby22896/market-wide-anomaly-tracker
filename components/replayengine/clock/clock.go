@@ -1,4 +1,4 @@
-package replayengine
+package clock
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mcudby/mwat/components/replayengine/common"
+	"github.com/mcudby/mwat/components/replayengine/logging"
 )
 
 const clockID = "clock"
@@ -15,7 +16,7 @@ type clock struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	logger    *Logger
+	logger    *logging.Logger
 
 	isPaused       *atomic.Bool
 	startTime      int64         // Unix Milli
@@ -32,10 +33,6 @@ type clock struct {
 	// i.o.
 	timestreamOutbox    chan<- Tick
 	getSimulationConfig func() SimulationConfig
-}
-
-type Tick struct {
-	Tick string `json:"tick"`
 }
 
 func NewClock(
@@ -68,7 +65,7 @@ func NewClock(
 		t:              ticker,
 
 		triggerRestartChan: make(chan any, 1024),
-		restartDone: make(chan any, 1024),
+		restartDone:        make(chan any, 1024),
 		isPausedChan:       make(chan bool, 1024),
 		subChan:            make(chan chan<- int64, 1024),
 		unsubChan:          make(chan chan<- int64, 1024),
@@ -188,7 +185,7 @@ func (c *clock) Pause() {
 
 func (c *clock) Restart() {
 	c.triggerRestartChan <- nil
-	<- c.restartDone
+	<-c.restartDone
 }
 
 func (c *clock) Resume() {
