@@ -32,12 +32,12 @@ type clock struct {
 
 	// i.o.
 	timestreamOutbox    chan<- Tick
-	getSimulationConfig func() SimulationConfig
+	getSimulationConfig func() common.SimulationConfig
 }
 
 func NewClock(
 	timestreamOutbox chan<- Tick,
-	getSimulationConfig func() SimulationConfig,
+	getSimulationConfig func() common.SimulationConfig,
 ) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -57,7 +57,7 @@ func NewClock(
 		ctx:       ctx,
 		cancelCtx: cancel,
 		wg:        sync.WaitGroup{},
-		logger:    NewComponentLogger(clockID),
+		logger:    logging.NewComponentLogger(clockID),
 
 		isPaused:       isPaused,
 		startTime:      startTime,

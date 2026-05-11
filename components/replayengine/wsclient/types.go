@@ -1,10 +1,10 @@
 package wsclient
 
-type UnreqisterRequest struct {
+type UnregisterRequest struct {
 	Sender *WSClient
 }
 
-type ReqisterRequest struct {
+type RegisterRequest struct {
 	Sender *WSClient
 }
 
@@ -16,10 +16,10 @@ type SubscriptionRequest struct {
 
 type SubRequest struct {
 	Sender  *WSClient
-	symbols []string
+	Symbols []string
 }
 
 type UnsubRequest struct {
 	Sender  *WSClient
-	symbols []string
+	Symbols []string
 }

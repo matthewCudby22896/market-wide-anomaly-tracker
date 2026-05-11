@@ -86,7 +86,7 @@ func (c *hydrationMgr) Start() {
 				return
 			default:
 				continue
-			}}
+			}
 		}
 	}()
 	c.logger.LogStart()

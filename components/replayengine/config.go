@@ -4,30 +4,21 @@ import (
 	"fmt"
 	"os"
 
-	"cloud.google.com/go/civil"
-)
-
-const (
-	DefaultPostgresDB = "postgres"
-	DefaultPostgresPassword = "password"
+	"github.com/mcudby/mwat/components/replayengine/defaults"
 )
 
 func fmtDBUrl(url string) string {
 	database := os.Getenv("POSTGRES_DB")
 	if database == "" {
-		database = DefaultPostgresDB
+		database = defaults.DefaultPostgresDB
 	}
 	password := os.Getenv("POSTGRES_PASSWORD")
 	if password == "" {
-		password = DefaultPostgresPassword
+		password = defaults.DefaultPostgresPassword
 	}
 
 	return fmt.Sprintf("postgres://%s:%s@%s/postgres?sslmode=disable", database, password, url)
 }
-
-const DefaultTimescale float32 = 5.0
-
-var DefaultDay = civil.Date{Year: 2025, Month: 3, Day: 20}
 
 const (
 	MAX_TIMESCALE float32 = 3600.0

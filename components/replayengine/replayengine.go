@@ -11,11 +11,9 @@ import (
 	"github.com/coder/websocket"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/components/replayengine/wsclient"
+	"github.com/mcudby/mwat/components/replayengine/logging"
+	"github.com/mcudby/mwat/components/replayengine/hub"
 )
-
-type ReplayEngineServer interface {
-	LifeCycle
-}
 
 const replayEngineServerID = "replay-engine-server"
 
@@ -23,7 +21,7 @@ type replayEngineServer struct {
 	id     string
 	Server *http.Server
 	wg     sync.WaitGroup
-	logger Logger
+	logger *logging.Logger
 	Hub    Hub
 }
 
@@ -54,8 +52,8 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 		id:     replayEngineServerID,
 		Server: server,
 		wg:     sync.WaitGroup{},
-		logger: *NewComponentLogger("replay-engine-server"),
-		Hub:    NewHub(database),
+		logger: logging.NewComponentLogger("replay-engine-server"),
+		Hub:    hub.NewHub(database),
 	}
 
 	// WebSocket

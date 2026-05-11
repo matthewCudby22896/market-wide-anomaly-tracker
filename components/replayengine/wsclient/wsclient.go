@@ -61,7 +61,7 @@ func (c *WSClient) Start() {
 		defer c.wg.Done()
 		<-c.ctx.Done()
 		c.logger.Info("requesting deregistration")
-		c.requestOutbox <- UnreqisterRequest{c}
+		c.requestOutbox <- UnregisterRequest{c}
 	}(c)
 	c.logger.LogStart()
 }

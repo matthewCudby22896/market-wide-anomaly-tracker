@@ -1,5 +1,7 @@
 package common
 
+import "cloud.google.com/go/civil"
+
 type Bar struct {
 	Symbol string  // e.g. "AAPL"
 	T      int64   // timestamp
@@ -15,4 +17,14 @@ type Bar struct {
 type HydrationStatusRow struct {
 	Symbol string
 	Date   string
+}
+
+type SimulationConfig struct {
+	Timescale float32
+	Date      civil.Date
+}
+
+type BroadcastMessage struct {
+	Symbol string
+	Payload any
 }
