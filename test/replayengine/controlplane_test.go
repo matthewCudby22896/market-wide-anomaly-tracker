@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/defaults"
 	"github.com/mcudby/mwat/test/replayengine/utils"
 )
 
@@ -217,8 +218,8 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	t.Cleanup(cancel)
 
 	expectedInitial := replayengine.ConfigMessage{
-		Timescale:      replayengine.DefaultTimescale,
-		SimulationDate: replayengine.DefaultDay.String(),
+		Timescale:      defaults.DefaultTimescale,
+		SimulationDate: defaults.DefaultDay.String(),
 	}
 
 	// AND a Get Settings request is made
