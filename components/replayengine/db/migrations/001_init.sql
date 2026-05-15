@@ -17,4 +17,4 @@ CREATE TABLE hydration_state_1sec (
     symbol  TEXT,
     date    DATE,
     PRIMARY KEY (symbol, date)
-)
+);

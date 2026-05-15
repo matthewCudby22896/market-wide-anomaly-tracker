@@ -44,6 +44,7 @@ func (db *ReplayEngineDB) ApplyMigrations() error {
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w ", err)
 	}
+	defer conn.Release()
 
 	// 1. Create migrations table if it doesn't exist
 	err = createMigrationsTable(ctx, conn)
@@ -106,6 +107,11 @@ func (db *ReplayEngineDB) ApplyMigrations() error {
 	err = tx.Commit(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to commit tx: %w ", err)
+	}
+
+	err = applyMaterialisedView(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("failed to apply views: %w", err)
 	}
 
 	return nil
@@ -171,4 +177,13 @@ func appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash
 	}
 
 	return nil
+}
+
+//go:embed views.sql
+var views string
+
+// todo: ensure this only runs once
+func applyMaterialisedView(ctx context.Context, conn *pgxpool.Conn) error {
+	_, err := conn.Exec(ctx, views)
+	return err
 }

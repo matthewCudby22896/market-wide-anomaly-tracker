@@ -14,6 +14,10 @@
 {"action":"unsub","symbols":["NVDA"]}
 ```
 
+```
+{"action":"sub","symbols":["NVDA","AAPL","MSFT","GOOGL","AMZN","META","TSLA","AVGO","ORCL","ADBE","AMD","INTC","NFLX","CRM","CSCO","QCOM","TXN","MU","AMAT","PYPL","JPM","BAC","GS","MS","V","MA","WMT","COST","TGT","DIS","BA","CAT","GE","MMM","XOM","CVX","PFE","JNJ","UNH","ABBV","SPY","QQQ","IWM","DIA","VIX","SOXL","TQQQ","SQ","COIN","HOOD"]}
+```
+
 **Timestream**
 ```
 {"action":"sub","symbols":["TIMESTREAM"]}
@@ -53,7 +57,7 @@ docker image ls
 ```
 Build & run replayengine image
 ```
-docker build . -t replayengine
+docker build . -t replayengine &&
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
 
