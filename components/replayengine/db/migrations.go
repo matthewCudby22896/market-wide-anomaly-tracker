@@ -109,11 +109,6 @@ func (db *ReplayEngineDB) ApplyMigrations() error {
 		return fmt.Errorf("failed to commit tx: %w ", err)
 	}
 
-	err = applyMaterialisedView(ctx, conn)
-	if err != nil {
-		return fmt.Errorf("failed to apply views: %w", err)
-	}
-
 	return nil
 }
 
@@ -177,13 +172,4 @@ func appendMigration(ctx context.Context, tx pgx.Tx, name string, prevHash, hash
 	}
 
 	return nil
-}
-
-//go:embed views.sql
-var views string
-
-// todo: ensure this only runs once
-func applyMaterialisedView(ctx context.Context, conn *pgxpool.Conn) error {
-	_, err := conn.Exec(ctx, views)
-	return err
 }
