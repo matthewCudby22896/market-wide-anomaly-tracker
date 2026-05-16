@@ -110,24 +110,19 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	// THEN the replayengine streams out every datapoint
 	// in chronological order
 	actualSeries := make([]common.Bar, 0, n)
+	var bar common.Bar
 	for i := range n {
-		var bar common.Bar
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
 
 		actualSeries = append(actualSeries, bar)
 
-		// s.T().Log(bar)
-		// s.T().Logf("%d / %d", i+1, n)
-
-		s.Require().Equal(expectedSeries[i], actualSeries[i], fmt.Sprintf("i=%d", i))
+		// AND each streamed out bar is identical to the expected
+		s.Require().Equal(expectedSeries[i], actualSeries[i], "i=%d", i)
 	}
 
-	// AND the streamed out data is identical to the data
-	// stored within the db
+	// AND all bars are streamed out
 	s.Require().Equal(len(expectedSeries), len(actualSeries))
-	s.Require().Equal(expectedSeries[0], actualSeries[0])
-	// s.Require().Equal(expectedSeries, actualSeries)
 }
 
 // Test suite entry point
