@@ -3,6 +3,7 @@ package test
 import (
 	"embed"
 	"encoding/gob"
+	"fmt"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	s.Require().NoError(err)
 
 	// verify series has been correctly stored
-	series, err := s.replayenginedb.GetFullSession(ctx, symbol, civilDate)
+	series, err := s.replayenginedb.GetFullSession(ctx, symbol, civilDate, db.T1s)
 	s.Require().Equal(expectedSeries, series)
 
 	// AND the replayengine is running
@@ -108,19 +109,25 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 
 	// THEN the replayengine streams out every datapoint
 	// in chronological order
-	actualSeries := make([]common.Bar, n)
-	for i := 0; i < n; i++ {
+	actualSeries := make([]common.Bar, 0, n)
+	for i := range n {
 		var bar common.Bar
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
-		actualSeries[i] = bar
+
+		actualSeries = append(actualSeries, bar)
+
 		// s.T().Log(bar)
 		// s.T().Logf("%d / %d", i+1, n)
+
+		s.Require().Equal(expectedSeries[i], actualSeries[i], fmt.Sprintf("i=%d", i))
 	}
 
 	// AND the streamed out data is identical to the data
 	// stored within the db
-	s.Require().Equal(expectedSeries, actualSeries)
+	s.Require().Equal(len(expectedSeries), len(actualSeries))
+	s.Require().Equal(expectedSeries[0], actualSeries[0])
+	// s.Require().Equal(expectedSeries, actualSeries)
 }
 
 // Test suite entry point

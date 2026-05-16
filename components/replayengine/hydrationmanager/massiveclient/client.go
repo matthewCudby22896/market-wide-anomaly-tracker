@@ -92,15 +92,15 @@ func (c *client) FetchTradingSession(ctx context.Context, day civil.Date, symbol
 		Limit:    rest.Ptr(50000),
 	}
 
-	open := strconv.FormatInt(common.NYSEOpenUnixMilli(day), 10)
-	close := strconv.FormatInt(common.NYSECloseUnixMilli(day), 10)
+	open := common.NYSEOpenUnixMilli(day)
+	close := common.NYSECloseUnixMilli(day)
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
 		string(symbol),
 		1,
 		gen.Second,
-		open,
-		close,
+		strconv.FormatInt(open, 10),
+		strconv.FormatInt(close, 10),
 		params,
 	)
 	if err != nil {
@@ -110,7 +110,7 @@ func (c *client) FetchTradingSession(ctx context.Context, day civil.Date, symbol
 		log.Fatal(err)
 	}
 
-	aggregateData := make([]common.Bar, 0, 4680) // todo: fix
+	aggregateData := make([]common.Bar, 0, 23400)
 	iter := rest.NewIteratorFromResponse(c.client, resp)
 
 	i := 0
@@ -126,14 +126,25 @@ func (c *client) FetchTradingSession(ctx context.Context, day civil.Date, symbol
 		v, _ := item["v"].(float64)
 		vw, _ := item["vw"].(float64)
 
+		// enforce the time range [open, close)
+		tInt64 := int64(t)
+		nInt64 := int64(n)
+
+		if tInt64 < open {
+			break
+		}
+		if tInt64 >= close {
+			break
+		}
+
 		bar := common.Bar{
 			Symbol: symbol,
-			T:      int64(t), // TODO: Check this is okay
+			T:      tInt64,
 			O:      o,
 			H:      h,
 			L:      l,
 			C:      c,
-			N:      int64(n),
+			N:      nInt64,
 			V:      v,
 			VW:     vw,
 		}

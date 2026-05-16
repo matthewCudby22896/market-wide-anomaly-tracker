@@ -111,6 +111,7 @@ func (t *SymbolThread) Start() {
 			t1,
 			t2,
 			*bufferA,
+			db.T1s,
 		)
 		*bufferA = (*bufferA)[:n]
 
@@ -137,8 +138,8 @@ func (t *SymbolThread) Start() {
 				// whilst bar occured before current tick, send it
 				for i < len(*bufferA) && (*bufferA)[i].T <= tick {
 					t.outbox <- common.BroadcastMessage{
-						(*bufferA)[i].Symbol,
-						(*bufferA)[i],
+						Symbol: (*bufferA)[i].Symbol,
+						Payload: (*bufferA)[i],
 					}
 					i += 1
 				}
@@ -187,7 +188,7 @@ func (t *SymbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 		defer close(done)
 
 		*buffer = (*buffer)[:cap(*buffer)]
-		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer)
+		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer, db.T1s)
 
 		if err != nil {
 			t.logger.Error("async: GetSeries errored", "err", err)
