@@ -1,5 +1,9 @@
 package wsclient
 
+import (
+	"github.com/mcudby/mwat/components/replayengine/common"
+)
+
 type UnregisterRequest struct {
 	Sender *WSClient
 }
@@ -9,17 +13,18 @@ type RegisterRequest struct {
 }
 
 // todo: possibly move to own file which defines external interface
+
 type SubscriptionRequest struct {
-	Action  string   `json:"action"`  // "sub" or "unsub"
-	Symbols []string `json:"symbols"` // e.g., ["QQQ", "SPY"]
+	Action string `json:"action"` // "sub" or "unsub"
+	Params string `json:"params"` // e.g. "AM.AAPL, A.AAPL"
 }
 
 type SubRequest struct {
 	Sender  *WSClient
-	Symbols []string
+	Streams []common.Stream
 }
 
 type UnsubRequest struct {
 	Sender  *WSClient
-	Symbols []string
+	Streams []common.Stream
 }

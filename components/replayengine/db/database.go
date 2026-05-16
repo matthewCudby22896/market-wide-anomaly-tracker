@@ -33,12 +33,6 @@ var ColNames = []string{
 	"vw",
 }
 
-type Timeframe int
-
-const (
-	T1s Timeframe = iota
-	T1m
-)
 
 func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
 	pool, err := pgxpool.New(ctx, connectionURI)
@@ -164,7 +158,7 @@ func (db *ReplayEngineDB) GetFullSession(
 	ctx context.Context,
 	symbol string,
 	date civil.Date,
-	timeframe Timeframe,
+	timeframe common.Timeframe,
 ) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -174,9 +168,9 @@ func (db *ReplayEngineDB) GetFullSession(
 
 	var stmt string
 	switch timeframe {
-	case T1s:
+	case common.T1s:
 		stmt = query1sec
-	case T1m:
+	case common.T1m:
 		stmt = query1min
 	default:
 		return nil, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)
@@ -226,7 +220,7 @@ func (db *ReplayEngineDB) GetSeries(
 	t1 int64,
 	t2 int64,
 	buffer []common.Bar,
-	timeframe Timeframe,
+	timeframe common.Timeframe,
 ) (int, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -236,9 +230,9 @@ func (db *ReplayEngineDB) GetSeries(
 
 	var stmt string
 	switch timeframe {
-	case T1s:
+	case common.T1s:
 		stmt = query1sec
-	case T1m:
+	case common.T1m:
 		stmt = query1min
 	default:
 		return 0, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)

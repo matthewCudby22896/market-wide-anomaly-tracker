@@ -61,10 +61,12 @@ func NewHydrationMgr(database *db.ReplayEngineDB, outbox chan<- any) *hydrationM
 func (c *hydrationMgr) GetID() string { return c.ID }
 
 func (c *hydrationMgr) Start() {
+	c.logger.Info("HELLO")
 	c.initStatusMap()
 
 	c.logger.LogStartChild(c.fetcher.GetID())
 	c.fetcher.Start()
+	c.logger.Info("HELLO")
 
 	c.wg.Add(1)
 	go func() {
@@ -72,6 +74,8 @@ func (c *hydrationMgr) Start() {
 		for {
 			select {
 			case query := <-c.dataQueryChan:
+				c.logger.Info("data query", "symbol", query.Symbol, "date", query.date.String()) 
+
 				state := c.getStateWithLock(query.Symbol, query.date.String())
 				if !(state == Ready || state == Hydrating) {
 					// Launch Hydration Task
@@ -226,14 +230,14 @@ func (c *hydrationMgr) setStatusWithLock(ticker string, date string, status hydr
 	c.statusMap[date][ticker] = status
 }
 
-func (c *hydrationMgr) IsReady(t string, d civil.Date) bool {
-	state := c.getStateWithLock(t, d.String())
+func (c *hydrationMgr) IsReady(symbol string, date civil.Date) bool {
+	state := c.getStateWithLock(symbol, date.String())
 
 	if state == Ready {
 		return true
 	}
 
-	c.dataQueryChan <- dataQuery{t, d}
+	c.dataQueryChan <- dataQuery{symbol, date}
 
 	return false
 }

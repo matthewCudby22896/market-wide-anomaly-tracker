@@ -1,7 +1,7 @@
 ### market-wide-anomaly-tracker
 
 ```
-{"action":"sub","symbols":["TSLA"]}
+{"action":"sub","params":"A.TSLA"}
 ```
 ```
 {"action":"unsub","symbols":["TSLA"]}
@@ -20,10 +20,10 @@
 
 **Timestream**
 ```
-{"action":"sub","symbols":["TIMESTREAM"]}
+{"action":"sub","params":"TIMESTREAM"}
 ```
 ```
-{"action":"unsub","symbols":["TIMESTREAM"]}
+{"action":"unsub","params":"TIMESTREAM"}
 ```
 
 

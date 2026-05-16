@@ -26,12 +26,12 @@ func NewComponentLogger(componentID string) *Logger {
 
 // To be called when a component calls Start() on a child component
 func (l *Logger) LogStartChild(childID string) {
-	l.Debug("starting child", keyChild, childID)
+	l.Info("starting child", keyChild, childID)
 }
 
 // To be called when a component calls Stop() on a child component
 func (l *Logger) LogStopChild(childID string) {
-	l.Debug("stopping child", keyChild, childID)
+	l.Info("stopping child", keyChild, childID)
 }
 
 // To be called to log the shutdown of the loggers component

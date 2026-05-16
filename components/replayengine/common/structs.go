@@ -1,6 +1,11 @@
 package common
 
-import "cloud.google.com/go/civil"
+import (
+	"fmt"
+	"strings"
+
+	"cloud.google.com/go/civil"
+)
 
 type Bar struct {
 	Symbol string  // e.g. "AAPL"
@@ -25,6 +30,28 @@ type SimulationConfig struct {
 }
 
 type BroadcastMessage struct {
-	Symbol string
-	Payload any
+	StreamID string
+	Payload  any
+}
+
+type Timeframe string
+
+const (
+	T1s Timeframe = "1s"
+	T1m Timeframe = "1m"
+)
+
+type Stream struct {
+	Type   string // A or AM
+	Symbol string // e.g. AAPL
+}
+
+func (s Stream) ID() string {
+	return fmt.Sprintf("%s.%s", s.Type, s.Symbol)
+}
+
+// todo: validation
+func StreamFromID(id string) Stream {
+	X := strings.Split(id, ".")
+	return Stream{X[0], X[1]}
 }

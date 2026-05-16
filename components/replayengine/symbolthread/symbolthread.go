@@ -23,8 +23,11 @@ type SymbolThread struct {
 	wg        sync.WaitGroup
 	logger    *logging.Logger
 
-	symbol string
-	date   civil.Date
+	stream    common.Stream
+	symbol    string
+	timeframe common.Timeframe
+	date      civil.Date
+	seriesID  string
 
 	TickChan  chan int64
 	tickInbox <-chan int64
@@ -34,8 +37,14 @@ type SymbolThread struct {
 	getSimulationTime func() int64
 }
 
+var streamIDToTimeframe = map[string]common.Timeframe{
+	"A":  common.T1s,
+	"AM": common.T1m,
+}
+
+// TODO: Update to handle timeframe
 func NewSymbolThread(
-	symbol string,
+	stream common.Stream,
 	date civil.Date,
 	db *db.ReplayEngineDB,
 	outbox chan<- common.BroadcastMessage,
@@ -44,7 +53,9 @@ func NewSymbolThread(
 ) *SymbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	id := fmt.Sprintf("%s-%s", symbol, date.String())
+	id := fmt.Sprintf("%s-%s", stream.ID(), date.String())
+
+	timeframe := streamIDToTimeframe[stream.Type]
 
 	return &SymbolThread{
 		id:        id,
@@ -53,8 +64,10 @@ func NewSymbolThread(
 		wg:        sync.WaitGroup{},
 		logger:    logging.NewComponentLogger(id),
 
-		symbol: symbol,
-		date:   date,
+		stream:    stream,
+		symbol:    stream.Symbol,
+		date:      date,
+		timeframe: timeframe,
 
 		TickChan:  tickChan,
 		tickInbox: tickChan,
@@ -111,7 +124,7 @@ func (t *SymbolThread) Start() {
 			t1,
 			t2,
 			*bufferA,
-			db.T1s,
+			t.timeframe,
 		)
 		*bufferA = (*bufferA)[:n]
 
@@ -138,8 +151,8 @@ func (t *SymbolThread) Start() {
 				// whilst bar occured before current tick, send it
 				for i < len(*bufferA) && (*bufferA)[i].T <= tick {
 					t.outbox <- common.BroadcastMessage{
-						Symbol: (*bufferA)[i].Symbol,
-						Payload: (*bufferA)[i],
+						StreamID: t.stream.ID(),
+						Payload:  (*bufferA)[i],
 					}
 					i += 1
 				}
@@ -188,7 +201,7 @@ func (t *SymbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 		defer close(done)
 
 		*buffer = (*buffer)[:cap(*buffer)]
-		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer, db.T1s)
+		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer, t.timeframe)
 
 		if err != nil {
 			t.logger.Error("async: GetSeries errored", "err", err)

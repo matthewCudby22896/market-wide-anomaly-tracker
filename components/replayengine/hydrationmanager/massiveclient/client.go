@@ -85,15 +85,17 @@ func (c *client) Shutdown() {
 	c.logger.LogShutdown()
 }
 
-func (c *client) FetchTradingSession(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error) {
+func (c *client) FetchTradingSession(ctx context.Context, date civil.Date, symbol string) ([]common.Bar, error) {
+	c.logger.Info("fetching trading session", "date", date.String(), "symbol", symbol)
+
 	params := &gen.GetStocksAggregatesParams{
 		Adjusted: rest.Ptr(true),
 		Sort:     "asc",
 		Limit:    rest.Ptr(50000),
 	}
 
-	open := common.NYSEOpenUnixMilli(day)
-	close := common.NYSECloseUnixMilli(day)
+	open := common.NYSEOpenUnixMilli(date)
+	close := common.NYSECloseUnixMilli(date)
 	resp, err := c.client.GetStocksAggregatesWithResponse(
 		ctx,
 		string(symbol),
