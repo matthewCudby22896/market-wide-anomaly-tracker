@@ -14,7 +14,13 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-// Implements the Database interface
+type Timeframe string
+
+const (
+	T1s Timeframe = "1s"
+	T1m Timeframe = "1m"
+)
+
 type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
 }
@@ -134,11 +140,30 @@ func (db *ReplayEngineDB) recordHydrationInTx(ctx context.Context, tx pgx.Tx, sy
 	return nil
 }
 
+const query1sec string = `
+	SELECT symbol, t, o, h, l, c, n, v, vw
+	FROM bars_1sec
+	WHERE t >= $1
+	AND t < $2
+	AND symbol = $3
+	ORDER BY t ASC
+`
+
+const query1min string = `
+	SELECT symbol, bucket_1m AS t, o, h, l, c, n, v, vw
+	FROM bars_1min
+	WHERE bucket_1m >= $1
+	AND bucket_1m < $2
+	AND symbol = $3
+	ORDER BY t ASC
+`
+
 // Convenience method for fetching the complete trading day for a specified date & symbol
 func (db *ReplayEngineDB) GetFullSession(
 	ctx context.Context,
 	symbol string,
 	date civil.Date,
+	timeframe Timeframe,
 ) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -146,14 +171,16 @@ func (db *ReplayEngineDB) GetFullSession(
 	}
 	defer conn.Release()
 
-	stmt := `
-		SELECT symbol, t, o, h, l, c, n, v, vw
-		FROM bars_1sec
-		WHERE t >= $1
-		AND t <= $2
-		AND symbol = $3
-		ORDER BY t ASC
-	`
+	var stmt string
+	switch timeframe {
+	case T1s:
+		stmt = query1sec
+	case T1m:
+		stmt = query1min
+	default:
+		return nil, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)
+	}
+
 	t1 := common.NYSEOpenUnixMilli(date)
 	t2 := common.NYSECloseUnixMilli(date)
 	rows, err := conn.Query(
@@ -198,6 +225,7 @@ func (db *ReplayEngineDB) GetSeries(
 	t1 int64,
 	t2 int64,
 	buffer []common.Bar,
+	timeframe Timeframe,
 ) (int, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -205,14 +233,16 @@ func (db *ReplayEngineDB) GetSeries(
 	}
 	defer conn.Release()
 
-	stmt := `
-		SELECT symbol, t, o, h, l, c, n, v, vw
-		FROM bars_1sec
-		WHERE t >= $1
-		AND t < $2
-		AND symbol = $3
-		ORDER BY t ASC
-	`
+	var stmt string
+	switch timeframe {
+	case T1s:
+		stmt = query1sec
+	case T1m:
+		stmt = query1min
+	default:
+		return 0, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)
+	}
+
 	rows, err := conn.Query(
 		ctx,
 		stmt,

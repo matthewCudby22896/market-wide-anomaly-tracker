@@ -2,11 +2,12 @@ package utils
 
 import (
 	"context"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/api"
 )
 
 type TestClient struct {
@@ -35,25 +36,26 @@ func (c *TestClient) BlockingReceive(dst any) error {
 }
 
 func (c *TestClient) SubToTimestream() error {
-	req := replayengine.SubscriptionRequest{
+	req := api.SubscriptionRequest{
 		Action: "sub",
-		Symbols: []string{"TIMESTREAM"},
+		Params: "TIMESTREAM",
 	}
 	return c.Send(req)
 }
 
 func (c *TestClient) SubToSymbols(symbols []string) error {
-	req := replayengine.SubscriptionRequest{
+	
+	req := api.SubscriptionRequest{
 		Action: "sub",
-		Symbols: symbols,
+		Params: strings.Join(symbols, ","),
 	}
 	return c.Send(req)
 }
 
 func (c *TestClient) UnsubToSymbols(symbols []string) error {
-	req := replayengine.SubscriptionRequest{
+	req := api.SubscriptionRequest{
 		Action: "unsub",
-		Symbols: symbols,
+		Params: strings.Join(symbols, ","),
 	}
 	return c.Send(req)
 }

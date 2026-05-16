@@ -44,6 +44,7 @@ func (db *ReplayEngineDB) ApplyMigrations() error {
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w ", err)
 	}
+	defer conn.Release()
 
 	// 1. Create migrations table if it doesn't exist
 	err = createMigrationsTable(ctx, conn)

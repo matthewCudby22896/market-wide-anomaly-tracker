@@ -12,16 +12,16 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/mcudby/mwat/common"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/hydrationmanager/massiveclient"
 	enginecommon "github.com/mcudby/mwat/components/replayengine/common"
 )
 
 func fetchSeries(date civil.Date, symbol string) ([]enginecommon.Bar, error) {
 	ctx := context.Background()
 
-	client := replayengine.NewMassiveClient()
+	client := massiveclient.NewMassiveClient()
 
-	series, err := client.FetchDayData(ctx, date, symbol)
+	series, err := client.FetchTradingSession(ctx, date, symbol)
 	if err != nil {
 		return []enginecommon.Bar{}, err
 	}

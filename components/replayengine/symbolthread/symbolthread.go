@@ -1,4 +1,4 @@
-package replayengine
+package symbolthread
 
 import (
 	"context"
@@ -9,58 +9,65 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
+	"github.com/mcudby/mwat/components/replayengine/logging"
 )
 
 const (
 	bufferSize = 512
 )
 
-type SymbolThread interface {
-	LifeCycle
-	AsyncShutdown()
-	SetOutbox(outbox chan<- BroadcastMessage)
-	Restart()
-}
-
-type symbolThread struct {
+type SymbolThread struct {
 	id        string
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
-	logger    *Logger
+	logger    *logging.Logger
 
-	symbol string
-	date   civil.Date
+	stream    common.Stream
+	symbol    string
+	timeframe db.Timeframe
+	date      civil.Date
+	seriesID  string
 
 	TickChan  chan int64
 	tickInbox <-chan int64
-	outbox    chan<- BroadcastMessage
+	outbox    chan<- common.BroadcastMessage
 
 	db                *db.ReplayEngineDB
 	getSimulationTime func() int64
 }
 
+var streamIDToTimeframe = map[string]db.Timeframe{
+	"A":  db.T1s,
+	"AM": db.T1m,
+}
+
+// TODO: Update to handle timeframe
 func NewSymbolThread(
-	symbol string,
+	stream common.Stream,
 	date civil.Date,
 	db *db.ReplayEngineDB,
-	outbox chan<- BroadcastMessage,
+	outbox chan<- common.BroadcastMessage,
 	tickChan chan int64,
 	getSimulationTime func() int64,
-) *symbolThread {
+) *SymbolThread {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	id := fmt.Sprintf("%s-%s", symbol, date.String())
+	id := fmt.Sprintf("%s-%s", stream.ID(), date.String())
 
-	return &symbolThread{
+	timeframe := streamIDToTimeframe[stream.Type]
+
+	return &SymbolThread{
 		id:        id,
 		ctx:       ctx,
 		cancelCtx: cancel,
 		wg:        sync.WaitGroup{},
-		logger:    NewComponentLogger(id),
+		logger:    logging.NewComponentLogger(id),
 
-		symbol: symbol,
-		date:   date,
+		stream:    stream,
+		symbol:    stream.Symbol,
+		date:      date,
+		timeframe: timeframe,
 
 		TickChan:  tickChan,
 		tickInbox: tickChan,
@@ -71,18 +78,22 @@ func NewSymbolThread(
 	}
 }
 
-func (t *symbolThread) Shutdown() {
+func (t *SymbolThread) GetID() string {
+	return t.id
+}
+
+func (t *SymbolThread) Shutdown() {
 	t.cancelCtx()
 	t.wg.Wait()
 	t.logger.LogShutdown()
 }
 
-func (t *symbolThread) AsyncShutdown() {
+func (t *SymbolThread) AsyncShutdown() {
 	t.logger.Info("async shutdown triggered")
 	go t.Shutdown()
 }
 
-func (t *symbolThread) Start() {
+func (t *SymbolThread) Start() {
 	if t.outbox == nil {
 		t.logger.Fatal("failed to start symbol thread: t.outbox was nil")
 	}
@@ -113,6 +124,7 @@ func (t *symbolThread) Start() {
 			t1,
 			t2,
 			*bufferA,
+			t.timeframe,
 		)
 		*bufferA = (*bufferA)[:n]
 
@@ -138,9 +150,9 @@ func (t *symbolThread) Start() {
 			case tick := <-t.tickInbox:
 				// whilst bar occured before current tick, send it
 				for i < len(*bufferA) && (*bufferA)[i].T <= tick {
-					t.outbox <- BroadcastMessage{
-						(*bufferA)[i].Symbol,
-						(*bufferA)[i],
+					t.outbox <- common.BroadcastMessage{
+						StreamID: t.stream.ID(),
+						Payload:  (*bufferA)[i],
 					}
 					i += 1
 				}
@@ -182,14 +194,14 @@ func (t *symbolThread) Start() {
 // asyncPopulateBuffer fetches bars in the range [t1, t2) and loads them into the provided buffer.
 // It returns a receive-only channel that transmits a single nil (or error) upon completion
 // Note: The caller must not access 'buffer' until the channel signals completion to avoid data races.
-func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) chan error {
+func (t *SymbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) chan error {
 	done := make(chan error, 1)
 	go func() {
 		// note: you can still receive from a close chan
 		defer close(done)
 
 		*buffer = (*buffer)[:cap(*buffer)]
-		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer)
+		n, err := t.db.GetSeries(t.ctx, t.symbol, t.date.String(), t1, t2, *buffer, t.timeframe)
 
 		if err != nil {
 			t.logger.Error("async: GetSeries errored", "err", err)
@@ -204,7 +216,7 @@ func (t *symbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 	return done
 }
 
-func (t *symbolThread) Restart() {
+func (t *SymbolThread) Restart() {
 	t.Shutdown()
 
 	ctx, cancel := context.WithCancel(context.Background())

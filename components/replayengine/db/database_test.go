@@ -71,7 +71,7 @@ func (s *databaseTestSuite) TestInsertFullSession() {
 	err := s.replayEngineDB.InsertFullSession(ctx, series, symbol, date)
 	s.Require().NoError(err)
 
-	retBars, err := s.replayEngineDB.GetFullSession(ctx, symbol, civilDate)
+	retBars, err := s.replayEngineDB.GetFullSession(ctx, symbol, civilDate, db.T1s)
 
 	s.Require().NoError(err)
 	s.Require().Equal(series, retBars, "the fetched bars were not equal to the input bars")
@@ -107,7 +107,7 @@ func (s *databaseTestSuite) TestGetSeries() {
 		"TestHappyGet",
 		func(t *testing.T) {
 			buffer := make([]common.Bar, 500)
-			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer)
+			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer, db.T1s)
 			s.Require().NoError(err)
 			s.Require().Equal(x, 500)
 		},
@@ -117,7 +117,7 @@ func (s *databaseTestSuite) TestGetSeries() {
 		func(t *testing.T) {
 
 			buffer := make([]common.Bar, 499)
-			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer)
+			x, err := s.replayEngineDB.GetSeries(ctx, symbol, date, t1, t2, buffer, db.T1s)
 			s.Require().Error(err)
 			s.Require().ErrorIs(err, db.BufferTooSmallErr)
 			s.Require().Equal(x, 0)

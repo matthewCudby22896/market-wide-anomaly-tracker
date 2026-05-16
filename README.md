@@ -1,76 +1,66 @@
 ### market-wide-anomaly-tracker
 
-```
-{"action":"sub","symbols":["TSLA"]}
-```
-```
-{"action":"unsub","symbols":["TSLA"]}
-```
+##### Running `replayengine` locally (option 1)
 
-```
-{"action":"sub","symbols":["NVDA"]}
-```
-```
-{"action":"unsub","symbols":["NVDA"]}
-```
+1. Launch TimescaleDB
 
-**Timestream**
-```
-{"action":"sub","symbols":["TIMESTREAM"]}
-```
-```
-{"action":"unsub","symbols":["TIMESTREAM"]}
-```
-
-
-#### Cmd Line Websocket Connection
-Start websocket connection
-```
-websocat -v ws://localhost:8080/ws
-```
-
-#### Local DB
-Clear timescale db
 ```
 sudo docker rm -f timescaledb
-```
-Clear all docker containers
-```
-sudo docker rm -f $(docker ps -aq)
-```
-Start timescale db
-```
 docker run -d --name timescaledb \
     -p 6543:5432 \
     -e POSTGRES_PASSWORD=password \
     timescale/timescaledb-ha:pg18
 ```
 
-#### Docker Commands
-General cmds
+2. Run the replayengine service
 ```
-docker image ls
-```
-Build & run replayengine image
-```
-docker build . -t replayengine
+docker build . -t replayengine &&
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
 
-#### Docker Compose
+##### Running `replayengine` via Docker Compose (option 2)
+
 ```
 docker compose up
 docker compose up --build
 ```
 
-#### Symbol Thread Redesign
+##### Connecting to local `replayengine`
 
-Idea: Instead of having each symbol-thread load the entire series for simulation date
-into memory, use 2 fixed-size buffers.
+Connect via `websocat`
+```bash
+websocat -v ws://localhost:8080/ws
+```
+Sub / Unsub to symbol
+```json
+{"action":"sub","params":"A.TSLA"}
+{"action":"sub","params":"AM.TSLA"}
+{"action":"unsub","params":"A.TSLA"}
+{"action":"unsub","params":"AM.TSLA"}
+```
+```json
+{"action":"sub","params":"A.NVDA"}
+{"action":"sub","params":"AM.NVDA"}
+{"action":"unsub","params":"A.NVDA"}
+{"action":"unsub","params":"AM.NVDA"}
+```
 
-Write a new db access method that can use PGX to copy straight into these buffers.
+Sub / Unsub to timestream updates
+```json
+{"action":"sub","params":"TIMESTREAM"}
+{"action":"unsub","params":"TIMESTREAM"}
+```
 
-During the simulaton, whilst one buffer is emptying have a side thread run to populate the now empty buffer.
+##### Useful Commands
 
-When one is empty swap one out for another.
+Clear all docker containers
+```bash
+# Remove all docker containers
+sudo docker rm -f $(docker ps -aq)
 
+# List docker images
+docker image ls
+
+# show pid of process running on port 8080
+lsof -i :8080  
+```

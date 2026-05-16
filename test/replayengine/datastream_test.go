@@ -9,7 +9,7 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/api"
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/test/replayengine/utils"
@@ -76,7 +76,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	s.Require().NoError(err)
 
 	// verify series has been correctly stored
-	series, err := s.replayenginedb.GetFullSession(ctx, symbol, civilDate)
+	series, err := s.replayenginedb.GetFullSession(ctx, symbol, civilDate, db.T1s)
 	s.Require().Equal(expectedSeries, series)
 
 	// AND the replayengine is running
@@ -86,7 +86,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	// AND the simulation settings are set to the correct day with a high timescale
 	utils.RequireUpdateSettings(
 		t,
-		replayengine.ReplayEngineSettings{
+		api.ConfigMessage{
 			Timescale:      3600.0,
 			SimulationDate: "2025-03-20",
 		},
@@ -97,8 +97,8 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
 	s.Require().NoError(err)
 
-	// AND the client subscribes to QQQ
-	err = client.SubToSymbols([]string{"QQQ"})
+	// AND the client subscribes to A.QQQ
+	err = client.SubToSymbols([]string{"A.QQQ"})
 	s.Require().NoError(err)
 
 	time.Sleep(2 * time.Second)
@@ -108,19 +108,20 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 
 	// THEN the replayengine streams out every datapoint
 	// in chronological order
-	actualSeries := make([]common.Bar, n)
-	for i := 0; i < n; i++ {
-		var bar common.Bar
+	actualSeries := make([]common.Bar, 0, n)
+	var bar common.Bar
+	for i := range n {
 		err := client.BlockingReceive(&bar)
 		s.Require().NoError(err)
-		actualSeries[i] = bar
-		// s.T().Log(bar)
-		// s.T().Logf("%d / %d", i+1, n)
+
+		actualSeries = append(actualSeries, bar)
+
+		// AND each streamed out bar is identical to the expected
+		s.Require().Equal(expectedSeries[i], actualSeries[i], "i=%d", i)
 	}
 
-	// AND the streamed out data is identical to the data
-	// stored within the db
-	s.Require().Equal(expectedSeries, actualSeries)
+	// AND all bars are streamed out
+	s.Require().Equal(len(expectedSeries), len(actualSeries))
 }
 
 // Test suite entry point

@@ -27,7 +27,7 @@ POST http://localhost:8080/control/hydrate
 Content-Type: application/json
 
 {
-    "symbol": "NVDA",
+    "symbol": "QQQ" ,
     "date": "2025-03-20"
 }
 
@@ -41,7 +41,7 @@ POST http://localhost:8080/control/settings
 Content-Type: application/json
 
 {
-    "timescale": 1.0,
+    "timescale": 30,
     "simulation-date": "2025-03-20"
 }
 

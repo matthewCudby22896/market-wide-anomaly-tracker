@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-
-	// "testing"
 	"time"
+	"testing"
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/api"
+	"github.com/mcudby/mwat/components/replayengine/defaults"
 	"github.com/mcudby/mwat/test/replayengine/utils"
 )
 
@@ -58,13 +58,11 @@ func (s *controlPlaneTestSuite) SetupSuite() {
 }
 
 func (s *controlPlaneTestSuite) requireReceiveTick(c *utils.TestClient) time.Time {
-	tick := struct {
-		Tick string `json:"tick"`
-	}{}
+	tick := api.Tick{}
 	err := c.BlockingReceive(&tick)
 	s.Require().NoError(err)
 
-	t, err := time.Parse(time.RFC3339, tick.Tick)
+	t, err := time.Parse(time.RFC3339, tick.T)
 	s.Require().NoError(err)
 
 	return t
@@ -89,7 +87,7 @@ func (s *controlPlaneTestSuite) TestTimestreamSubscription() {
 	// AND the client waits to read 10 ticks
 	firstTick := s.requireReceiveTick(client)
 	s.T().Log(firstTick)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		tick := s.requireReceiveTick(client)
 		s.T().Log(tick)
 	}
@@ -119,7 +117,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 
 	paused := false
 	prev := s.requireReceiveTick(client)
-	for i := 0; i < n; i++ {
+	for range n {
 		curr := s.requireReceiveTick(client)
 
 		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
@@ -137,7 +135,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	// GIVEN a resume command is issued
 	utils.RequireResumeSimulation(t)
 	prev = s.requireReceiveTick(client)
-	for i := 0; i < n; i++ {
+	for range n {
 		curr := s.requireReceiveTick(client)
 
 		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
@@ -155,7 +153,7 @@ func (s *controlPlaneTestSuite) TestPauseAndResume() {
 	// GIVEN a pause command is issued
 	utils.RequirePauseSimulation(t)
 	prev = s.requireReceiveTick(client)
-	for i := 0; i < n; i++ {
+	for range n {
 		curr := s.requireReceiveTick(client)
 
 		s.T().Logf("\ncurr: %s\nprev: %s", curr, prev)
@@ -195,7 +193,7 @@ func (s *controlPlaneTestSuite) TestRestart() {
 
 	restarted := false
 	n := 100
-	for i := 0; i < n; i++ {
+	for range n{
 		tick := s.requireReceiveTick(client)
 
 		h, m, _ := tick.Clock()
@@ -216,9 +214,9 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	cancel := s.replayengine.RequireStartReplayEngine(t)
 	t.Cleanup(cancel)
 
-	expectedInitial := replayengine.ReplayEngineSettings{
-		Timescale:      replayengine.DefaultTimescale,
-		SimulationDate: replayengine.DefaultDay.String(),
+	expectedInitial := api.ConfigMessage{
+		Timescale:      defaults.DefaultTimescale,
+		SimulationDate: defaults.DefaultDay.String(),
 	}
 
 	// AND a Get Settings request is made
@@ -226,13 +224,13 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
-	var dst replayengine.ReplayEngineSettings
+	var dst api.ConfigMessage
 	err = json.NewDecoder(resp.Body).Decode(&dst)
 	s.Require().NoError(err)
 	s.Equal(expectedInitial, dst)
 
 	// GIVEN an Update settings request is made
-	updatedSettings := replayengine.ReplayEngineSettings{
+	updatedSettings := api.ConfigMessage{
 		Timescale:      10.0,
 		SimulationDate: "2026-01-01",
 	}
@@ -251,13 +249,13 @@ func (s *controlPlaneTestSuite) TestGetAndUpdateSettings() {
 	defer finalResp.Body.Close()
 
 	// THEN the retrieved settings match those sent in the Update request
-	var finalSettings replayengine.ReplayEngineSettings
+	var finalSettings api.ConfigMessage
 	err = json.NewDecoder(finalResp.Body).Decode(&finalSettings)
 	s.Require().NoError(err)
 	s.Equal(updatedSettings, finalSettings)
 }
 
 // Test suite entry point
-// func TestConrolPlane(t *testing.T) {
-// 	suite.Run(t, new(controlPlaneTestSuite))
-// }
+func TestConrolPlane(t *testing.T) {
+	suite.Run(t, new(controlPlaneTestSuite))
+}
