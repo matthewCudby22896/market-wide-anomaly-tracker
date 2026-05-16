@@ -3,7 +3,6 @@ package test
 import (
 	"embed"
 	"encoding/gob"
-	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/test/replayengine/utils"
+	"github.com/mcudby/mwat/test/replayengine/api"
 )
 
 type datastreamTestSuite struct {

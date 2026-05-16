@@ -12,6 +12,7 @@ import (
 
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/logging"
+	"github.com/mcudby/mwat/components/replayengine/api"
 )
 
 type WSClient struct {
@@ -71,7 +72,7 @@ func (c *WSClient) Start() {
 func (c *WSClient) ListenerThread() {
 	defer c.wg.Done()
 	for {
-		var v SubscriptionRequest
+		var v api.SubscriptionRequest
 		err := wsjson.Read(c.ctx, c.connection, &v)
 
 		if err != nil {

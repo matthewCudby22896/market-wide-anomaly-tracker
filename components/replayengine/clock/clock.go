@@ -8,6 +8,7 @@ import (
 
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/logging"
+	"github.com/mcudby/mwat/components/replayengine/api"
 )
 
 const clockID = "clock"
@@ -31,12 +32,12 @@ type clock struct {
 	subscribers        map[chan<- int64]struct{}
 
 	// i.o.
-	timestreamOutbox    chan<- Tick
+	timestreamOutbox    chan<- api.Tick
 	getSimulationConfig func() common.SimulationConfig
 }
 
 func NewClock(
-	timestreamOutbox chan<- Tick,
+	timestreamOutbox chan<- api.Tick,
 	getSimulationConfig func() common.SimulationConfig,
 ) *clock {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -133,7 +134,7 @@ func (c *clock) Start() {
 
 				ts := common.UnixMilliToTimestampNYC(simulationTime)
 				select { // Non-blocking send
-				case c.timestreamOutbox <- Tick{ts}:
+				case c.timestreamOutbox <- api.Tick{T:ts}:
 				default:
 				}
 
