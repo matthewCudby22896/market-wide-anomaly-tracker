@@ -4,7 +4,7 @@
 
 1. Launch TimescaleDB
 
-```
+```bash
 sudo docker rm -f timescaledb
 docker run -d --name timescaledb \
     -p 6543:5432 \
@@ -13,14 +13,14 @@ docker run -d --name timescaledb \
 ```
 
 2. Run the replayengine service
-```
+```bash
 docker build . -t replayengine &&
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
 
 ##### Running `replayengine` via Docker Compose (option 2)
 
-```
+```bash
 docker compose up
 docker compose up --build
 ```
