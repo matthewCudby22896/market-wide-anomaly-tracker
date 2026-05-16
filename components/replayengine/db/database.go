@@ -145,7 +145,7 @@ const query1sec string = `
 	SELECT symbol, t, o, h, l, c, n, v, vw
 	FROM bars_1sec
 	WHERE t >= $1
-	AND t <= $2
+	AND t < $2
 	AND symbol = $3
 	ORDER BY t ASC
 `
