@@ -12,7 +12,7 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/logging"
 )
 
-const dataCoordinatorID = "data-coordinator"
+const dataCoordinatorID = "hydration-manager"
 
 type DataFetcher interface {
 	FetchTradingSession(ctx context.Context, day civil.Date, symbol string) ([]common.Bar, error)
@@ -61,12 +61,10 @@ func NewHydrationMgr(database *db.ReplayEngineDB, outbox chan<- any) *hydrationM
 func (c *hydrationMgr) GetID() string { return c.ID }
 
 func (c *hydrationMgr) Start() {
-	c.logger.Info("HELLO")
 	c.initStatusMap()
 
 	c.logger.LogStartChild(c.fetcher.GetID())
 	c.fetcher.Start()
-	c.logger.Info("HELLO")
 
 	c.wg.Add(1)
 	go func() {
@@ -74,7 +72,7 @@ func (c *hydrationMgr) Start() {
 		for {
 			select {
 			case query := <-c.dataQueryChan:
-				c.logger.Info("data query", "symbol", query.Symbol, "date", query.date.String()) 
+				c.logger.Info("data query", "symbol", query.Symbol, "date", query.date.String())
 
 				state := c.getStateWithLock(query.Symbol, query.date.String())
 				if !(state == Ready || state == Hydrating) {
@@ -188,7 +186,7 @@ func (c *hydrationMgr) HydrationTask(symbol string, date civil.Date) {
 		)
 	}
 
-	c.logger.Info("ohlc bars succesfully fetched", "num-bars", len(bars))
+	c.logger.Info("series succesfully fetched", "num-bars", len(bars), "symbol", symbol, "date", date.String())
 
 	// Update status
 	c.setStatusWithLock(symbol, date.String(), Ready)

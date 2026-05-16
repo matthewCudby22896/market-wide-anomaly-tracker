@@ -41,7 +41,7 @@ POST http://localhost:8080/control/settings
 Content-Type: application/json
 
 {
-    "timescale": 100.0,
+    "timescale": 30,
     "simulation-date": "2025-03-20"
 }
 

@@ -55,3 +55,9 @@ func StreamFromID(id string) Stream {
 	X := strings.Split(id, ".")
 	return Stream{X[0], X[1]}
 }
+
+var StreamType = []string{
+	"A",  // -> 1s
+	"AM", // -> 1m
+}
+

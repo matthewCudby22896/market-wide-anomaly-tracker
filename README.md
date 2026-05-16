@@ -1,68 +1,64 @@
 ### market-wide-anomaly-tracker
 
-```
-{"action":"sub","params":"A.TSLA"}
-```
-```
-{"action":"unsub","symbols":["TSLA"]}
-```
+##### Running `replayengine` locally (option 1)
 
-```
-{"action":"sub","symbols":["NVDA"]}
-```
-```
-{"action":"unsub","symbols":["NVDA"]}
-```
+1. Launch TimescaleDB
 
-```
-{"action":"sub","symbols":["NVDA","AAPL","MSFT","GOOGL","AMZN","META","TSLA","AVGO","ORCL","ADBE","AMD","INTC","NFLX","CRM","CSCO","QCOM","TXN","MU","AMAT","PYPL","JPM","BAC","GS","MS","V","MA","WMT","COST","TGT","DIS","BA","CAT","GE","MMM","XOM","CVX","PFE","JNJ","UNH","ABBV","SPY","QQQ","IWM","DIA","VIX","SOXL","TQQQ","SQ","COIN","HOOD"]}
-```
-
-**Timestream**
-```
-{"action":"sub","params":"TIMESTREAM"}
-```
-```
-{"action":"unsub","params":"TIMESTREAM"}
-```
-
-
-#### Cmd Line Websocket Connection
-Start websocket connection
-```
-websocat -v ws://localhost:8080/ws
-```
-
-#### Local DB
-Clear timescale db
 ```
 sudo docker rm -f timescaledb
-```
-Clear all docker containers
-```
-sudo docker rm -f $(docker ps -aq)
-```
-Start timescale db
-```
 docker run -d --name timescaledb \
     -p 6543:5432 \
     -e POSTGRES_PASSWORD=password \
     timescale/timescaledb-ha:pg18
 ```
 
-#### Docker Commands
-General cmds
+2. Run the replayengine service
 ```
-docker image ls
-```
-Build & run replayengine image
-```
+
 docker build . -t replayengine &&
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
 
-#### Docker Compose
+##### Running `replayengine` via Docker Compose (option 2)
+
 ```
 docker compose up
 docker compose up --build
+```
+
+##### Connecting to local `replayengine`
+
+Connect via `websocat`
+```bash
+websocat -v ws://localhost:8080/ws
+```
+Sub / Unsub to symbol
+```json
+{"action":"sub","params":"A.TSLA"}
+{"action":"sub","params":"AM.TSLA"}
+{"action":"unsub","params":"A.TSLA"}
+{"action":"unsub","params":"AM.TSLA"}
+```
+```json
+{"action":"sub","params":"A.NVDA"}
+{"action":"sub","params":"AM.NVDA"}
+{"action":"unsub","params":"A.NVDA"}
+{"action":"unsub","params":"AM.NVDA"}
+```
+
+Sub / Unsub to timestream updates
+```json
+{"action":"sub","params":"TIMESTREAM"}
+{"action":"unsub","params":"TIMESTREAM"}
+```
+
+##### Useful Commands
+
+Clear all docker containers
+```bash
+# Remove all docker containers
+sudo docker rm -f $(docker ps -aq)
+
+# List docker images
+docker image ls
 ```

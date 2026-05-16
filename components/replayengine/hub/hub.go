@@ -193,35 +193,12 @@ func (h *hub) Start() {
 				case hdrmgr.HydrationSuccess:
 					h.logger.Info("hydration notification received", "symbol", v.Symbol, "date", v.Date.String())
 
-					// todo: start ticker threads for A.<symbol> and/or AM.<symbol>
-					// todo: helper func
-					id := fmt.Sprintf("AM.%s", v.Symbol)
-					hasSubscribers := len(h.streamToSubbedClientsSet[id]) > 0
-					threadMissing := h.streamToThreads[id] == nil
-					h.logger.Info("", "hasSubscribers", hasSubscribers, "threadMissing", threadMissing)
-					if hasSubscribers && threadMissing {
-						h.StartTickerThread(common.Stream{Type: "AM", Symbol: v.Symbol}, v.Date)
-					}
-
-					id = fmt.Sprintf("A.%s", v.Symbol)
-					hasSubscribers = len(h.streamToSubbedClientsSet[id]) > 0
-					threadMissing = h.streamToThreads[id] == nil
-					h.logger.Info("", "hasSubscribers", hasSubscribers, "threadMissing", threadMissing)
-					if hasSubscribers && threadMissing {
-						h.StartTickerThread(common.Stream{Type: "AM", Symbol: v.Symbol}, v.Date)
-					}
+					h.startStreamThreadsIfRequired(v.Symbol, v.Date)
 
 				case hdrmgr.HydrationFailure:
 					h.logger.Info("hydration failure notification received", "notification", v)
 
-					// clients := h.streamToSubbedClientsSet[v.Symbol]
-					// for c := range clients {
-					// 	c.Outbox() <- struct{ msg string }{
-					// 		msg: fmt.Sprintf("hydration failed for symbol '%s'", v.Symbol),
-					// 	}
-					// 	delete(clients, c)
-					// }
-					// delete(h.streamToSubbedClientsSet, v.Symbol)
+					h.notifyOfHydrationFailure(v.Symbol, v.Date)
 
 				default:
 					h.logger.Fatal("unrecognised notification received", "notification", v)
@@ -234,6 +211,28 @@ func (h *hub) Start() {
 		}
 	}()
 	h.logger.LogStart()
+}
+
+func (h *hub) startStreamThreadsIfRequired(symbol string, date civil.Date) {
+	for _, _type := range common.StreamType {
+		streamID := fmt.Sprintf("%s.%s", _type, symbol)
+		hasSubscribers := len(h.streamToSubbedClientsSet[streamID]) > 0
+		threadMissing := h.streamToThreads[streamID] == nil
+		if hasSubscribers && threadMissing {
+			h.StartTickerThread(common.Stream{Type: "AM", Symbol: symbol}, date)
+		}
+	}
+}
+
+func (h *hub) notifyOfHydrationFailure(symbol string, date civil.Date) {
+	for _, _type := range common.StreamType {
+		streamID := fmt.Sprintf("%s.%s", _type, symbol)
+		for c := range h.streamToSubbedClientsSet[streamID] {
+			c.Outbox() <- struct{Msg string `json:"msg"`}{
+				Msg: fmt.Sprintf("hydration failed for symbol=`%s` date=`%s`", symbol, date.String()),
+			}
+		}
+	}
 }
 
 func (h *hub) handleBroadcast(msg common.BroadcastMessage) {
@@ -317,34 +316,37 @@ func (h *hub) unsubToTimestream(c *ws.WSClient) {
 }
 
 func (h *hub) handleSub(req ws.SubRequest) {
-	c := req.Sender
+	client := req.Sender
 	date := h.config.GetConfig().Date
 
 	for _, stream := range req.Streams {
+		streamID := stream.ID()
+
 		if stream.Symbol == TIMESTREAM {
-			h.subToTimestream(c)
+			h.subToTimestream(client)
 			continue
 		}
 
 		// Ensure Sets are initialised
-		if h.streamToSubbedClientsSet[stream.ID()] == nil {
-			h.streamToSubbedClientsSet[stream.ID()] = map[*ws.WSClient]struct{}{}
+		if h.streamToSubbedClientsSet[streamID] == nil {
+			h.streamToSubbedClientsSet[streamID] = map[*ws.WSClient]struct{}{}
 		}
-		if h.clientToSubbedStreamsSet[c] == nil {
-			h.clientToSubbedStreamsSet[c] = map[string]struct{}{}
+		if h.clientToSubbedStreamsSet[client] == nil {
+			h.clientToSubbedStreamsSet[client] = map[string]struct{}{}
 		}
 
 		// Update state
-		h.streamToSubbedClientsSet[stream.ID()][c] = struct{}{}
-		h.clientToSubbedStreamsSet[c][stream.ID()] = struct{}{}
+		h.streamToSubbedClientsSet[streamID][client] = struct{}{}
+		h.clientToSubbedStreamsSet[client][streamID] = struct{}{}
 
 		threadAlreadyStarted := h.streamToThreads[stream.ID()] != nil
 
 		h.logger.Info(
 			"client subscribed to stream",
-			"client-id", c.ID,
+			"client-id", client.ID,
 			"stream", stream.ID(),
-			"num-subscribed", len(h.streamToSubbedClientsSet[stream.ID()]),
+			"num-subscribed-to-stream", len(h.streamToSubbedClientsSet[streamID]),
+			"client-subscription-count", len(h.clientToSubbedStreamsSet[client]),
 			"thread-already-started", threadAlreadyStarted,
 		)
 
@@ -361,7 +363,7 @@ func (h *hub) handleSub(req ws.SubRequest) {
 			return
 		}
 
-		// If data is not ready, hydration mgr will send msg to h.hydrationStateInbox
+		// If data is not ready, hydration mgr will notify when it is
 		h.logger.Info(
 			"symbol not yet hydrated",
 			"symbol", stream.Symbol,
@@ -436,7 +438,6 @@ func (h *hub) killSymbolThread(symbol string) {
 	h.clock.UnregisterPipe(thread.TickChan)
 }
 
-// todo: update
 func (h *hub) StartTickerThread(stream common.Stream, date civil.Date) *symbolthread.SymbolThread {
 	h.logger.Info("starting symbol thread", "stream-id", stream.ID())
 
