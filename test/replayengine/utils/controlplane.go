@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/api"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +41,7 @@ func RequireRestartSimulation(t *testing.T) {
 	t.Log("replayengine resumed")
 }
 
-func RequireUpdateSettings(t *testing.T, req replayengine.ConfigMessage) {
+func RequireUpdateSettings(t *testing.T, req api.ConfigMessage) {
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 

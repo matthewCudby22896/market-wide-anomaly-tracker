@@ -14,7 +14,13 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/common"
 )
 
-// Implements the Database interface
+type Timeframe string
+
+const (
+	T1s Timeframe = "1s"
+	T1m Timeframe = "1m"
+)
+
 type ReplayEngineDB struct {
 	connPool *pgxpool.Pool
 }
@@ -32,7 +38,6 @@ var ColNames = []string{
 	"v",
 	"vw",
 }
-
 
 func EstablishDBConnection(ctx context.Context, connectionURI string) *ReplayEngineDB {
 	pool, err := pgxpool.New(ctx, connectionURI)
@@ -158,7 +163,7 @@ func (db *ReplayEngineDB) GetFullSession(
 	ctx context.Context,
 	symbol string,
 	date civil.Date,
-	timeframe common.Timeframe,
+	timeframe Timeframe,
 ) ([]common.Bar, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -168,9 +173,9 @@ func (db *ReplayEngineDB) GetFullSession(
 
 	var stmt string
 	switch timeframe {
-	case common.T1s:
+	case T1s:
 		stmt = query1sec
-	case common.T1m:
+	case T1m:
 		stmt = query1min
 	default:
 		return nil, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)
@@ -220,7 +225,7 @@ func (db *ReplayEngineDB) GetSeries(
 	t1 int64,
 	t2 int64,
 	buffer []common.Bar,
-	timeframe common.Timeframe,
+	timeframe Timeframe,
 ) (int, error) {
 	conn, err := db.GetConn(ctx)
 	if err != nil {
@@ -230,9 +235,9 @@ func (db *ReplayEngineDB) GetSeries(
 
 	var stmt string
 	switch timeframe {
-	case common.T1s:
+	case T1s:
 		stmt = query1sec
-	case common.T1m:
+	case T1m:
 		stmt = query1min
 	default:
 		return 0, fmt.Errorf("unrecognised timeframe provided: %v", timeframe)

@@ -9,11 +9,10 @@ import (
 	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/mcudby/mwat/components/replayengine"
+	"github.com/mcudby/mwat/components/replayengine/api"
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
 	"github.com/mcudby/mwat/test/replayengine/utils"
-	"github.com/mcudby/mwat/test/replayengine/api"
 )
 
 type datastreamTestSuite struct {
@@ -87,7 +86,7 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	// AND the simulation settings are set to the correct day with a high timescale
 	utils.RequireUpdateSettings(
 		t,
-		replayengine.ConfigMessage{
+		api.ConfigMessage{
 			Timescale:      3600.0,
 			SimulationDate: "2025-03-20",
 		},
@@ -98,8 +97,8 @@ func (s *datastreamTestSuite) TestEntireSeriesIsStreamedOut() {
 	client, err := utils.NewTestClient(ctx, replayEngineWSURL)
 	s.Require().NoError(err)
 
-	// AND the client subscribes to QQQ
-	err = client.SubToSymbols([]string{"QQQ"})
+	// AND the client subscribes to A.QQQ
+	err = client.SubToSymbols([]string{"A.QQQ"})
 	s.Require().NoError(err)
 
 	time.Sleep(2 * time.Second)

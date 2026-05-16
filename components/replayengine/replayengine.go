@@ -10,18 +10,18 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/mcudby/mwat/components/replayengine/db"
-	"github.com/mcudby/mwat/components/replayengine/wsclient"
-	"github.com/mcudby/mwat/components/replayengine/logging"
 	"github.com/mcudby/mwat/components/replayengine/hub"
+	"github.com/mcudby/mwat/components/replayengine/logging"
+	"github.com/mcudby/mwat/components/replayengine/wsclient"
 )
 
 const replayEngineServerID = "replay-engine-server"
 
 type replayEngineServer struct {
 	id     string
-	Server *http.Server
 	wg     sync.WaitGroup
 	logger *logging.Logger
+	Server *http.Server
 	Hub    Hub
 }
 
@@ -38,7 +38,6 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 		fmtDBUrl(opts.DatabaseURL),
 	)
 
-	// Apply migrations
 	database.RequireApplyMigrations()
 
 	mux := http.NewServeMux()
@@ -71,11 +70,12 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 }
 
 func (s *replayEngineServer) Start() {
+	s.logger.LogStartChild(s.Hub.GetID())
+	s.Hub.Start()
+
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.logger.LogStartChild(s.Hub.GetID())
-		s.Hub.Start()
 
 		// Start listening
 		msg := fmt.Sprintf("listening on %s", s.Server.Addr)
@@ -88,12 +88,12 @@ func (s *replayEngineServer) Start() {
 			}
 			s.logger.Error("ListenAndServe() errored", "error", err)
 			return
-		} // Start child components
+		}
 	}()
 }
 
 func (s *replayEngineServer) Shutdown() {
-	// 1. Stop serving new connections
+	// Stop serving new connections
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -107,7 +107,7 @@ func (s *replayEngineServer) Shutdown() {
 		}
 	}()
 
-	// 2. Wait for the Hub to Stop
+	// Wait for the Hub to Stop
 	s.logger.LogStopChild(s.Hub.GetID())
 	s.Hub.Shutdown()
 

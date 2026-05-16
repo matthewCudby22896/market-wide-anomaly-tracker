@@ -27,8 +27,14 @@ type Tick struct {
 	T string `json:"t"`
 }
 
-var StreamTypes = []string{
-	"A",  // -> 1s
-	"AM", // -> 1m
+
+type ConfigMessage struct {
+	Timescale      float32 `json:"timescale"`
+	SimulationDate string  `json:"simulation-date"`
+}
+
+type HydrationRequest struct {
+	Symbol string `json:"symbol"`
+	Date   string `json:"date"`
 }
 

@@ -11,7 +11,8 @@ import (
 
 	"cloud.google.com/go/civil"
 	"github.com/mcudby/mwat/components/replayengine/common"
-	coord "github.com/mcudby/mwat/components/replayengine/hydrationmanager"
+	"github.com/mcudby/mwat/components/replayengine/api"
+	hdrmgr "github.com/mcudby/mwat/components/replayengine/hydrationmanager"
 )
 
 func (s *replayEngineServer) handlePing(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +58,7 @@ func (s *replayEngineServer) handleRestart(w http.ResponseWriter, r *http.Reques
 func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		payload := ConfigMessage{}
+		payload := api.ConfigMessage{}
 		err := Decode(r.Body, &payload)
 		if err != nil {
 			err := fmt.Errorf("failed to marshal request body: %w", err)
@@ -81,7 +82,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		settings := s.Hub.GetSimulationSettings()
 
-		payload := ConfigMessage{
+		payload := api.ConfigMessage{
 			Timescale:      settings.Timescale,
 			SimulationDate: settings.Date.String(),
 		}
@@ -96,7 +97,7 @@ func (s *replayEngineServer) handleSettings(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func validateSettings(payload ConfigMessage) (common.SimulationConfig, error) {
+func validateSettings(payload api.ConfigMessage) (common.SimulationConfig, error) {
 	date, err := validateDateStr(payload.SimulationDate)
 	if err != nil {
 		return common.SimulationConfig{}, err
@@ -122,7 +123,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	body := HydrationRequest{}
+	body := api.HydrationRequest{}
 	err := Decode(r.Body, &body)
 	if err != nil {
 		errorWithMsg(w, "request body was not in expected form", http.StatusBadRequest)
@@ -138,10 +139,10 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	err = s.Hub.HydrateSymbol(ctx, symbol, date)
 	if err != nil {
 		switch {
-		case errors.Is(err, coord.AlreadyHydratedErr):
+		case errors.Is(err, hdrmgr.AlreadyHydratedErr):
 			errorWithMsg(w, "symbol is already hydrated", http.StatusBadRequest)
 
-		case errors.Is(err, coord.AlreadyHydratingErr):
+		case errors.Is(err, hdrmgr.AlreadyHydratingErr):
 			errorWithMsg(w, "symbol is already currently hydrating", http.StatusBadRequest)
 
 		default:
@@ -153,7 +154,7 @@ func (s *replayEngineServer) handleHydrate(w http.ResponseWriter, r *http.Reques
 	successWithMsg(w, fmt.Sprintf("%s-%s successfully hydrated", symbol, date.String()))
 }
 
-func validateHydrateRequest(req HydrationRequest) (string, civil.Date, error) {
+func validateHydrateRequest(req api.HydrationRequest) (string, civil.Date, error) {
 	date, err := validateDateStr(req.Date)
 	if err != nil {
 		return "", civil.Date{}, err

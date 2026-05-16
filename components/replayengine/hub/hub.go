@@ -175,7 +175,7 @@ func (h *hub) Start() {
 }
 
 func (h *hub) startStreamThreadsIfRequired(symbol string, date civil.Date) {
-	for _, _type := range api.StreamTypes {
+	for _, _type := range common.StreamTypes {
 		streamID := fmt.Sprintf("%s.%s", _type, symbol)
 		hasSubscribers := len(h.streamIDToSubbedClientsSet[streamID]) > 0
 		threadMissing := h.streamToThreads[streamID] == nil
@@ -186,7 +186,7 @@ func (h *hub) startStreamThreadsIfRequired(symbol string, date civil.Date) {
 }
 
 func (h *hub) notifyOfHydrationFailure(symbol string, date civil.Date) {
-	for _, _type := range api.StreamTypes {
+	for _, _type := range common.StreamTypes {
 		streamID := fmt.Sprintf("%s.%s", _type, symbol)
 
 		for c := range h.streamIDToSubbedClientsSet[streamID] {

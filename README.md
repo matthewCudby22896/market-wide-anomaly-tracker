@@ -14,7 +14,6 @@ docker run -d --name timescaledb \
 
 2. Run the replayengine service
 ```
-
 docker build . -t replayengine &&
 docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
 ```
@@ -61,4 +60,7 @@ sudo docker rm -f $(docker ps -aq)
 
 # List docker images
 docker image ls
+
+# show pid of process running on port 8080
+lsof -i :8080  
 ```

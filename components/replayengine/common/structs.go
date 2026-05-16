@@ -34,12 +34,6 @@ type BroadcastMessage struct {
 	Payload  any
 }
 
-type Timeframe string
-
-const (
-	T1s Timeframe = "1s"
-	T1m Timeframe = "1m"
-)
 
 type Stream struct {
 	Type   string // A or AM
@@ -56,3 +50,7 @@ func StreamFromID(id string) Stream {
 	return Stream{X[0], X[1]}
 }
 
+var StreamTypes = []string{
+	"A",  // -> 1s
+	"AM", // -> 1m
+}

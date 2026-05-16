@@ -25,7 +25,7 @@ type SymbolThread struct {
 
 	stream    common.Stream
 	symbol    string
-	timeframe common.Timeframe
+	timeframe db.Timeframe
 	date      civil.Date
 	seriesID  string
 
@@ -37,9 +37,9 @@ type SymbolThread struct {
 	getSimulationTime func() int64
 }
 
-var streamIDToTimeframe = map[string]common.Timeframe{
-	"A":  common.T1s,
-	"AM": common.T1m,
+var streamIDToTimeframe = map[string]db.Timeframe{
+	"A":  db.T1s,
+	"AM": db.T1m,
 }
 
 // TODO: Update to handle timeframe
