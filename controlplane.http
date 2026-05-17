@@ -46,7 +46,7 @@ POST http://{{baseUrl}}/control/settings
 Content-Type: application/json
 
 {
-    "timescale": 120,
+    "timescale": 1,
     "simulation-date": "2025-03-20"
 }
 

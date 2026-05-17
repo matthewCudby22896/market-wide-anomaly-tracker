@@ -86,8 +86,6 @@ func (c *hydrationMgr) Start() {
 
 			case <-c.Ctx.Done():
 				return
-			default:
-				continue
 			}
 		}
 	}()
