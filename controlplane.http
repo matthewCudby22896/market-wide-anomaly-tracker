@@ -1,19 +1,24 @@
+# @baseUrl = localhost:8080
+# @baseUrl = {{$processEnv REPLAY_ENGINE_PUB_IP}}
+
+@baseUrl = 167.172.54.38:8080
+
 ### Ping
-POST http://localhost:8080/ping
+POST http://{{baseUrl}}/ping
 
 ### Pause
-POST http://localhost:8080/simulation/pause
+POST http://{{baseUrl}}/simulation/pause
 
 ### Resume
-POST http://localhost:8080/simulation/resume
+POST http://{{baseUrl}}/simulation/resume
 
 ### Restart
-POST http://localhost:8080/simulation/restart
+POST http://{{baseUrl}}/simulation/restart
 
 # Symbol Hydration
 
 ### AMD
-POST http://localhost:8080/control/hydrate
+POST http://{{baseUrl}}/control/hydrate
 Content-Type: application/json
 
 {
@@ -23,7 +28,7 @@ Content-Type: application/json
 
 ### NVDA
 
-POST http://localhost:8080/control/hydrate
+POST http://{{baseUrl}}/control/hydrate
 Content-Type: application/json
 
 {
@@ -33,21 +38,21 @@ Content-Type: application/json
 
 ### GET Settings
 
-GET http://localhost:8080/control/settings
+GET http://{{baseUrl}}/control/settings
 
 
 ### POST (Set) Settings 1.0 timescale
-POST http://localhost:8080/control/settings
+POST http://{{baseUrl}}/control/settings
 Content-Type: application/json
 
 {
-    "timescale": 30,
+    "timescale": 120,
     "simulation-date": "2025-03-20"
 }
 
 
 ### POST (Set) Settings 2.0 timescale
-POST http://localhost:8080/control/settings
+POST http://{{baseUrl}}/control/settings
 Content-Type: application/json
 
 {
@@ -56,7 +61,7 @@ Content-Type: application/json
 }
 
 ### 
-POST http://localhost:8080/control/settings
+POST http://{{baseUrl}}/control/settings
 Content-Type: application/json
 
 {

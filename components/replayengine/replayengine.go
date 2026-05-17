@@ -43,7 +43,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	mux := http.NewServeMux()
 
 	server := &http.Server{
-		Addr:    ":" + opts.Port,
+		Addr:  "0.0.0.0" + ":" + opts.Port,
 		Handler: mux,
 	}
 

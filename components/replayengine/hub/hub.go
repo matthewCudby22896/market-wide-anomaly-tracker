@@ -10,10 +10,10 @@ import (
 	"github.com/mcudby/mwat/components/replayengine/clock"
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/db"
+	hdrmgr "github.com/mcudby/mwat/components/replayengine/hydrationmanager"
 	"github.com/mcudby/mwat/components/replayengine/logging"
 	"github.com/mcudby/mwat/components/replayengine/symbolthread"
 	ws "github.com/mcudby/mwat/components/replayengine/wsclient"
-	hdrmgr "github.com/mcudby/mwat/components/replayengine/hydrationmanager"
 )
 
 const (
@@ -37,7 +37,7 @@ type hub struct {
 
 	clientsSet                 map[*ws.WSClient]struct{}
 	streamIDToSubbedClientsSet map[string]map[*ws.WSClient]struct{}
-	streamToThreads            map[string]*symbolthread.SymbolThread
+	streamToThread            map[string]*symbolthread.SymbolThread
 	clientToSubbedStreamsSet   map[*ws.WSClient]map[string]struct{}
 
 	subbedToTimestream map[*ws.WSClient]struct{}
@@ -78,7 +78,7 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 		clientsSet:                 make(map[*ws.WSClient]struct{}),
 		streamIDToSubbedClientsSet: make(map[string]map[*ws.WSClient]struct{}),
 		clientToSubbedStreamsSet:   make(map[*ws.WSClient]map[string]struct{}),
-		streamToThreads:            make(map[string]*symbolthread.SymbolThread),
+		streamToThread:            make(map[string]*symbolthread.SymbolThread),
 
 		subbedToTimestream: make(map[*ws.WSClient]struct{}),
 		timestreamInbox:    timestreamChan,
@@ -109,7 +109,7 @@ func (h *hub) Shutdown() {
 	h.logger.LogStopChild(h.HydrationMgr.GetID())
 	h.HydrationMgr.Shutdown()
 
-	for _, symbolThread := range h.streamToThreads {
+	for _, symbolThread := range h.streamToThread {
 		h.logger.LogStopChild(symbolThread.GetID())
 		symbolThread.Shutdown()
 	}
@@ -178,9 +178,9 @@ func (h *hub) startStreamThreadsIfRequired(symbol string, date civil.Date) {
 	for _, _type := range common.StreamTypes {
 		streamID := fmt.Sprintf("%s.%s", _type, symbol)
 		hasSubscribers := len(h.streamIDToSubbedClientsSet[streamID]) > 0
-		threadMissing := h.streamToThreads[streamID] == nil
+		threadMissing := h.streamToThread[streamID] == nil
 		if hasSubscribers && threadMissing {
-			h.StartTickerThread(common.Stream{Type: "AM", Symbol: symbol}, date)
+			h.StartTickerThread(common.Stream{Type: _type, Symbol: symbol}, date)
 		}
 	}
 }
@@ -191,9 +191,9 @@ func (h *hub) notifyOfHydrationFailure(symbol string, date civil.Date) {
 
 		for c := range h.streamIDToSubbedClientsSet[streamID] {
 			c.Outbox() <- api.FailedHydrationMsg{
-				Msg: "hydration failed",
+				Msg:    "hydration failed",
 				Symbol: symbol,
-				Date: date.String(),
+				Date:   date.String(),
 			}
 		}
 	}
@@ -237,7 +237,7 @@ func (h *hub) SetSimulationSettings(newConfig common.SimulationConfig) {
 
 func (h *hub) restartSymbolThreads() {
 	wg := sync.WaitGroup{}
-	for _, symbolThread := range h.streamToThreads {
+	for _, symbolThread := range h.streamToThread {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -304,7 +304,7 @@ func (h *hub) handleSub(req ws.SubRequest) {
 		h.streamIDToSubbedClientsSet[streamID][client] = struct{}{}
 		h.clientToSubbedStreamsSet[client][streamID] = struct{}{}
 
-		threadAlreadyStarted := h.streamToThreads[stream.ID()] != nil
+		threadAlreadyStarted := h.streamToThread[stream.ID()] != nil
 
 		h.logger.Info(
 			"client subscribed to stream",
@@ -325,7 +325,7 @@ func (h *hub) handleSub(req ws.SubRequest) {
 				stream,
 				date,
 			)
-			return
+			continue
 		}
 
 		// If data is not ready, hydration mgr will notify when it is
@@ -346,21 +346,26 @@ func (h *hub) handleUnsub(req ws.UnsubRequest) {
 			continue
 		}
 
-		if clients, ok := h.streamIDToSubbedClientsSet[stream.ID()]; ok {
+		streamID := stream.ID()
+
+		if clients, ok := h.streamIDToSubbedClientsSet[streamID]; ok {
+			// Delete the req sender client from the streams set of registered clients
 			delete(clients, c)
 
 			h.logger.Info(
 				"client unsubscribed from stream",
 				"client-id", c.ID,
-				"stream", stream,
+				"stream", streamID,
 				"num-subscribed", len(h.streamIDToSubbedClientsSet[stream.ID()]),
 			)
 
+			// If the no. clients subscribed to the stream is now 0, kill the stream (symbol) thread
 			if len(clients) == 0 {
 				h.logger.Info("last subscriber unsubbed, killing symbol thread", "stream", stream.ID())
-				h.killSymbolThread(stream.ID())
-				delete(h.streamIDToSubbedClientsSet, stream.ID())
+				h.killSymbolThread(streamID)
+				delete(h.streamIDToSubbedClientsSet, streamID)
 			}
+
 		}
 	}
 }
@@ -397,15 +402,13 @@ func (h *hub) handleUnregister(req ws.UnregisterRequest) {
 	h.logger.Info("client unregistered from hub", "client-id", c.ID, "client-count", len(h.clientsSet))
 }
 
-func (h *hub) killSymbolThread(symbol string) {
-	thread := h.streamToThreads[symbol]
+func (h *hub) killSymbolThread(streamID string) {
+	thread := h.streamToThread[streamID]
+	delete(h.streamToThread, streamID)
 
 	h.logger.LogStopChild(thread.GetID())
-
-	thread.AsyncShutdown()
-
-	delete(h.streamToThreads, symbol)
 	h.clock.UnregisterPipe(thread.TickChan)
+	thread.AsyncShutdown()
 }
 
 func (h *hub) StartTickerThread(stream common.Stream, date civil.Date) *symbolthread.SymbolThread {
@@ -424,7 +427,7 @@ func (h *hub) StartTickerThread(stream common.Stream, date civil.Date) *symbolth
 
 	h.clock.RegisterPipe(tickChan)
 
-	h.streamToThreads[stream.ID()] = thread
+	h.streamToThread[stream.ID()] = thread
 
 	h.logger.LogStartChild(thread.GetID())
 
