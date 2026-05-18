@@ -3,7 +3,6 @@ package replayengine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -20,7 +19,6 @@ const replayEngineServerID = "replay-engine-server"
 type replayEngineServer struct {
 	id     string
 	wg     sync.WaitGroup
-	ctx    context.Context
 	logger *logging.Logger
 	server *http.Server
 	Hub    Hub
@@ -82,19 +80,18 @@ func (s *replayEngineServer) Start() {
 		}()
 
 		// Wait for interruption
-		select {
-		case err := <-srvErr:
-			if errors.Is(err, http.ErrServerClosed) {
-				s.logger.Info("server closed gracefully")
-				break
-			}
+		err := <-srvErr
+		if errors.Is(err, http.ErrServerClosed) {
+			s.logger.Info("server closed gracefully")
+		} else {
 			s.logger.Error("server unexpectedly errored", "error", err)
-		case <-s.ctx.Done():
 		}
 
 		// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed
-		err := s.server.Shutdown(context.Background())
-		if err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.server.Shutdown(ctx); err != nil {
 			s.logger.Error("server shutdown errored", "err", err)
 		}
 	})
@@ -102,15 +99,14 @@ func (s *replayEngineServer) Start() {
 
 func (s *replayEngineServer) Shutdown() {
 	// Stop serving new connections
-	s.wg.Go(func() {
-		s.logger.Info("shutting down http server")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	s.logger.Info("shutting down http server")
 
-		if err := s.server.Shutdown(ctx); err != nil {
-			fmt.Printf("HTTP shutdown error: %v\n", err)
-		}
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.server.Shutdown(ctx); err != nil {
+		s.logger.Error("server shutdown errored", "err", err)
+	}
 
 	// Wait for the Hub to Stop
 	s.logger.LogStopChild(s.Hub.GetID())
@@ -118,7 +114,6 @@ func (s *replayEngineServer) Shutdown() {
 
 	s.wg.Wait()
 	s.logger.LogShutdown()
-
 }
 
 func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +126,6 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 
 	// 2. Create a new client instance
 	client := wsclient.NewClient(c, s.Hub.GetInbox())
-
-	s.server.RegisterOnShutdown(client.Close)
 
 	// 3. Register it with the Hub, the Hub will handle its lifecycle
 	s.Hub.RegisterClient(client)

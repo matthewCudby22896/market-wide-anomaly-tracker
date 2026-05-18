@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"io"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -55,6 +56,8 @@ func (c *WSClient) Close() {
 
 func (c *WSClient) Shutdown() {
 	c.shutdownOnce.Do(func() {
+		go c.conn.Close(websocket.StatusNormalClosure, "")
+
 		c.cancelCtx()
 		c.wg.Wait()
 
@@ -83,17 +86,19 @@ func (c *WSClient) ListenerThread() {
 
 			if errors.Is(err, context.Canceled) {
 				return
+			} 
+			
+			if status := websocket.CloseStatus(err); status != -1 {
+				c.logger.Info("connection closed via handshake, exiting listener loop", "status-code", status)
+				return
+			} 
+			
+			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+				c.logger.Info("connection was closed abruptly (EOF), exiting listener loop")
+				return
+			} 
 
-			} else if status := websocket.CloseStatus(err); status != -1 {
-				c.logger.Info("connection closed, exiting listener loop", "status-code", status)
-
-			} else if errors.Is(err, net.ErrClosed) {
-				c.logger.Info("connection was closed, exiting listener loop")
-
-			} else {
-				c.logger.Error("failed to read from ws conn", "err", err)
-			}
-
+			c.logger.Error("failed to read from ws conn", "err", err)
 			return
 		}
 
