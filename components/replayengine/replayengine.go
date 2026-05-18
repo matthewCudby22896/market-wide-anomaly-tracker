@@ -20,8 +20,9 @@ const replayEngineServerID = "replay-engine-server"
 type replayEngineServer struct {
 	id     string
 	wg     sync.WaitGroup
+	ctx    context.Context
 	logger *logging.Logger
-	Server *http.Server
+	server *http.Server
 	Hub    Hub
 }
 
@@ -49,7 +50,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 
 	srv := &replayEngineServer{
 		id:     replayEngineServerID,
-		Server: server,
+		server: server,
 		wg:     sync.WaitGroup{},
 		logger: logging.NewComponentLogger("replay-engine-server"),
 		Hub:    hub.NewHub(database),
@@ -74,16 +75,27 @@ func (s *replayEngineServer) Start() {
 	s.Hub.Start()
 
 	s.wg.Go(func() {
-		msg := fmt.Sprintf("listening on %s", s.Server.Addr)
-		s.logger.Info(msg)
-		err := s.Server.ListenAndServe()
-		if err != nil {
+		srvErr := make(chan error, 1)
+
+		go func() {
+			srvErr <- s.server.ListenAndServe()
+		}()
+
+		// Wait for interruption
+		select {
+		case err := <-srvErr:
 			if errors.Is(err, http.ErrServerClosed) {
-				s.logger.Info("http server closed.")
-				return
+				s.logger.Info("server closed gracefully")
+				break
 			}
-			s.logger.Error("ListenAndServe() errored", "error", err)
-			return
+			s.logger.Error("server unexpectedly errored", "error", err)
+		case <-s.ctx.Done():
+		}
+
+		// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed
+		err := s.server.Shutdown(context.Background())
+		if err != nil {
+			s.logger.Error("server shutdown errored", "err", err)
 		}
 	})
 }
@@ -95,7 +107,7 @@ func (s *replayEngineServer) Shutdown() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := s.Server.Shutdown(ctx); err != nil {
+		if err := s.server.Shutdown(ctx); err != nil {
 			fmt.Printf("HTTP shutdown error: %v\n", err)
 		}
 	})
@@ -119,6 +131,8 @@ func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Req
 
 	// 2. Create a new client instance
 	client := wsclient.NewClient(c, s.Hub.GetInbox())
+
+	s.server.RegisterOnShutdown(client.Close)
 
 	// 3. Register it with the Hub, the Hub will handle its lifecycle
 	s.Hub.RegisterClient(client)
