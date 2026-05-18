@@ -3,7 +3,6 @@ package replayengine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ type replayEngineServer struct {
 	id     string
 	wg     sync.WaitGroup
 	logger *logging.Logger
-	Server *http.Server
+	server *http.Server
 	Hub    Hub
 }
 
@@ -49,7 +48,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 
 	srv := &replayEngineServer{
 		id:     replayEngineServerID,
-		Server: server,
+		server: server,
 		wg:     sync.WaitGroup{},
 		logger: logging.NewComponentLogger("replay-engine-server"),
 		Hub:    hub.NewHub(database),
@@ -74,31 +73,40 @@ func (s *replayEngineServer) Start() {
 	s.Hub.Start()
 
 	s.wg.Go(func() {
-		msg := fmt.Sprintf("listening on %s", s.Server.Addr)
-		s.logger.Info(msg)
-		err := s.Server.ListenAndServe()
-		if err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				s.logger.Info("http server closed.")
-				return
-			}
-			s.logger.Error("ListenAndServe() errored", "error", err)
-			return
+		srvErr := make(chan error, 1)
+
+		go func() {
+			srvErr <- s.server.ListenAndServe()
+		}()
+
+		// Wait for interruption
+		err := <-srvErr
+		if errors.Is(err, http.ErrServerClosed) {
+			s.logger.Info("server closed gracefully")
+		} else {
+			s.logger.Error("server unexpectedly errored", "error", err)
+		}
+
+		// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.logger.Error("server shutdown errored", "err", err)
 		}
 	})
 }
 
 func (s *replayEngineServer) Shutdown() {
 	// Stop serving new connections
-	s.wg.Go(func() {
-		s.logger.Info("shutting down http server")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	s.logger.Info("shutting down http server")
 
-		if err := s.Server.Shutdown(ctx); err != nil {
-			fmt.Printf("HTTP shutdown error: %v\n", err)
-		}
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.server.Shutdown(ctx); err != nil {
+		s.logger.Error("server shutdown errored", "err", err)
+	}
 
 	// Wait for the Hub to Stop
 	s.logger.LogStopChild(s.Hub.GetID())
@@ -106,7 +114,6 @@ func (s *replayEngineServer) Shutdown() {
 
 	s.wg.Wait()
 	s.logger.LogShutdown()
-
 }
 
 func (s *replayEngineServer) handleConnection(w http.ResponseWriter, r *http.Request) {

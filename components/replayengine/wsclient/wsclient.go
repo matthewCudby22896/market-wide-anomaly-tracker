@@ -2,9 +2,12 @@ package wsclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
+	"io"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -16,14 +19,15 @@ import (
 )
 
 type WSClient struct {
-	ID        string
-	ctx       context.Context
-	cancelCtx context.CancelFunc
-	wg        sync.WaitGroup
-	logger    *logging.Logger
+	ID           string
+	ctx          context.Context
+	cancelCtx    context.CancelFunc
+	wg           sync.WaitGroup
+	shutdownOnce sync.Once
+	logger       *logging.Logger
 
-	connection *websocket.Conn
-	outbox     chan any
+	conn   *websocket.Conn
+	outbox chan any
 
 	requestOutbox chan<- any
 }
@@ -39,16 +43,29 @@ func NewClient(conn *websocket.Conn, outbox chan<- any) *WSClient {
 		cancelCtx:     cancel,
 		wg:            sync.WaitGroup{},
 		logger:        logging.NewComponentLogger(id),
-		connection:    conn,
+		conn:          conn,
 		outbox:        make(chan any, 1024),
 		requestOutbox: outbox,
 	}
 }
 
+func (c *WSClient) Close() {
+	c.conn.Close(websocket.StatusNormalClosure, "closure requested by server")
+	c.Shutdown()
+}
+
 func (c *WSClient) Shutdown() {
-	c.cancelCtx()
-	c.wg.Wait()
-	c.logger.LogShutdown()
+	c.shutdownOnce.Do(func() {
+		go c.conn.Close(websocket.StatusNormalClosure, "")
+
+		c.cancelCtx()
+		c.wg.Wait()
+
+		c.logger.Info("requesting deregistration")
+		c.requestOutbox <- UnregisterRequest{c}
+
+		c.logger.LogShutdown()
+	})
 }
 
 func (c *WSClient) Start() {
@@ -56,29 +73,32 @@ func (c *WSClient) Start() {
 
 	c.wg.Go(c.SenderThread)
 
-	// Ensures the client is always unregistered from the hub
-	c.wg.Go(func() {
-		<-c.ctx.Done()
-		c.logger.Info("requesting deregistration")
-		c.requestOutbox <- UnregisterRequest{c}
-	})
-
 	c.logger.LogStart()
 }
 
 func (c *WSClient) ListenerThread() {
 	for {
 		var v api.SubscriptionRequest
-		err := wsjson.Read(c.ctx, c.connection, &v)
+		err := wsjson.Read(c.ctx, c.conn, &v)
 
 		if err != nil {
-			status := websocket.CloseStatus(err)
-			if status == -1 {
-				c.logger.Info("client gracefully disconnected")
-			} else {
-				c.logger.Error("client read error", "error", err)
-			}
 			go c.Shutdown()
+
+			if errors.Is(err, context.Canceled) {
+				return
+			} 
+			
+			if status := websocket.CloseStatus(err); status != -1 {
+				c.logger.Info("connection closed via handshake, exiting listener loop", "status-code", status)
+				return
+			} 
+			
+			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+				c.logger.Info("connection was closed abruptly (EOF), exiting listener loop")
+				return
+			} 
+
+			c.logger.Error("failed to read from ws conn", "err", err)
 			return
 		}
 
@@ -106,9 +126,23 @@ func (c *WSClient) SenderThread() {
 		case <-c.ctx.Done():
 			return
 		case msg := <-c.outbox:
-			err := wsjson.Write(c.ctx, c.connection, msg)
+
+			err := wsjson.Write(c.ctx, c.conn, msg)
+
 			if err != nil {
-				c.logger.Error("failed to write to json", "err", err)
+				go c.Shutdown()
+				if errors.Is(err, context.Canceled) {
+
+				} else if status := websocket.CloseStatus(err); status != -1 {
+					c.logger.Info("connection closed, exiting sender loop", "status-code", status)
+
+				} else if errors.Is(err, net.ErrClosed) {
+					c.logger.Info("connection was closed, exiting sender loop")
+
+				} else {
+					c.logger.Error("failed to read from ws conn", "err", err)
+				}
+				return
 			}
 		}
 	}
