@@ -37,7 +37,7 @@ type hub struct {
 
 	clientsSet                 map[*ws.WSClient]struct{}
 	streamIDToSubbedClientsSet map[string]map[*ws.WSClient]struct{}
-	streamToThread            map[string]*symbolthread.SymbolThread
+	streamToThread             map[string]*symbolthread.SymbolThread
 	clientToSubbedStreamsSet   map[*ws.WSClient]map[string]struct{}
 
 	subbedToTimestream map[*ws.WSClient]struct{}
@@ -78,7 +78,7 @@ func NewHub(database *db.ReplayEngineDB) *hub {
 		clientsSet:                 make(map[*ws.WSClient]struct{}),
 		streamIDToSubbedClientsSet: make(map[string]map[*ws.WSClient]struct{}),
 		clientToSubbedStreamsSet:   make(map[*ws.WSClient]map[string]struct{}),
-		streamToThread:            make(map[string]*symbolthread.SymbolThread),
+		streamToThread:             make(map[string]*symbolthread.SymbolThread),
 
 		subbedToTimestream: make(map[*ws.WSClient]struct{}),
 		timestreamInbox:    timestreamChan,
@@ -124,10 +124,7 @@ func (h *hub) Start() {
 	h.logger.LogStartChild(h.HydrationMgr.GetID())
 	h.HydrationMgr.Start()
 	h.clock.Start()
-
-	h.wg.Add(1)
-	go func() {
-		defer h.wg.Done()
+	h.wg.Go(func() {
 		for {
 			select {
 			case <-h.ctx.Done():
@@ -170,7 +167,7 @@ func (h *hub) Start() {
 				}
 			}
 		}
-	}()
+	})
 	h.logger.LogStart()
 }
 
@@ -238,12 +235,10 @@ func (h *hub) SetSimulationSettings(newConfig common.SimulationConfig) {
 func (h *hub) restartSymbolThreads() {
 	wg := sync.WaitGroup{}
 	for _, symbolThread := range h.streamToThread {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			h.logger.Info("restarting symbol thread", "symbol-thread-id", symbolThread.GetID())
 			symbolThread.Restart()
-		}()
+		})
 	}
 	wg.Wait()
 }

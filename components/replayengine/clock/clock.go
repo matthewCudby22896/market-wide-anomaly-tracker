@@ -83,9 +83,7 @@ func (c *clock) Start() {
 		c.logger.Fatal("c.timeStreamOutbox was nil")
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+	c.wg.Go(func() {
 		for {
 			// Main loop: This is the only thread where c.subscribers ought to
 			// be modified.
@@ -154,7 +152,7 @@ func (c *clock) Start() {
 				c.simulationTime.Store(simulationTime + 1000)
 			}
 		}
-	}()
+	})
 	c.logger.LogStart()
 }
 
