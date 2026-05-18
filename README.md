@@ -13,9 +13,9 @@ docker run -d --name timescaledb \
 ```
 
 2. Run the replayengine service
-```bash
-docker build . -t replayengine &&
-docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY replayengine:latest
+```
+docker build . -t mcudby22896/replayengine &&
+docker run --network host -e MASSIVE_API_KEY=$MASSIVE_API_KEY mcudby22896/replayengine:latest
 ```
 
 ##### Running `replayengine` via Docker Compose (option 2)
@@ -45,6 +45,10 @@ Sub / Unsub to symbol
 {"action":"unsub","params":"AM.NVDA"}
 ```
 
+```json
+{"action":"sub","params":"A.NVDA, A.AMD, A.AAPL, A.GOOG"}
+```
+
 Sub / Unsub to timestream updates
 ```json
 {"action":"sub","params":"TIMESTREAM"}
@@ -63,4 +67,16 @@ docker image ls
 
 # show pid of process running on port 8080
 lsof -i :8080  
+```
+
+```bash
+docker build . -t mcudby22896/replayengine
+docker push mcudby22896/replayengine:latest
+```
+
+#### `doctl` commands
+```bash
+doctl auth init --access-token $DIGITAL_OCEAN_API_KEY
+
+doctl compute droplet list
 ```

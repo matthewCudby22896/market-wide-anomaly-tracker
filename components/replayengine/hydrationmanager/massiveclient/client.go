@@ -58,9 +58,7 @@ func (c *client) GetID() string {
 }
 
 func (c *client) Start() {
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+	c.wg.Go(func () {
 		ticker := time.NewTicker((1000 / 60) * time.Millisecond)
 
 		for {
@@ -75,7 +73,7 @@ func (c *client) Start() {
 				}
 			}
 		}
-	}()
+	})
 	c.logger.LogStart()
 }
 

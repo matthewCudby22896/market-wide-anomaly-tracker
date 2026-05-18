@@ -10,9 +10,9 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
 
+	"github.com/mcudby/mwat/components/replayengine/api"
 	"github.com/mcudby/mwat/components/replayengine/common"
 	"github.com/mcudby/mwat/components/replayengine/logging"
-	"github.com/mcudby/mwat/components/replayengine/api"
 )
 
 type WSClient struct {
@@ -52,25 +52,21 @@ func (c *WSClient) Shutdown() {
 }
 
 func (c *WSClient) Start() {
-	c.wg.Add(1)
-	go c.ListenerThread()
-	c.wg.Add(1)
-	go c.SenderThread()
+	c.wg.Go(c.ListenerThread)
 
-	// This will ensure that the client is always unregistered from the Hub
-	// when the client disconnects
-	c.wg.Add(1)
-	go func(c *WSClient) {
-		defer c.wg.Done()
+	c.wg.Go(c.SenderThread)
+
+	// Ensures the client is always unregistered from the hub
+	c.wg.Go(func() {
 		<-c.ctx.Done()
 		c.logger.Info("requesting deregistration")
 		c.requestOutbox <- UnregisterRequest{c}
-	}(c)
+	})
+
 	c.logger.LogStart()
 }
 
 func (c *WSClient) ListenerThread() {
-	defer c.wg.Done()
 	for {
 		var v api.SubscriptionRequest
 		err := wsjson.Read(c.ctx, c.connection, &v)
@@ -105,7 +101,6 @@ func (c *WSClient) ListenerThread() {
 }
 
 func (c *WSClient) SenderThread() {
-	defer c.wg.Done()
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -132,13 +127,13 @@ func extractStreamsFromParams(params string) ([]common.Stream, error) {
 	streams := make([]common.Stream, len(values))
 
 	for i, v := range values {
-		// special case
+		// Special case
 		if v == "TIMESTREAM" {
 			streams[i].Symbol, streams[i].Symbol = v, v
 			continue
 		}
 
-		// regular case
+		// Regular case
 		parts := strings.Split(v, ".")
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("csv %d `%s` did not meet expected format", i, v)

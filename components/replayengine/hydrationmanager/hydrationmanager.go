@@ -66,9 +66,7 @@ func (c *hydrationMgr) Start() {
 	c.logger.LogStartChild(c.fetcher.GetID())
 	c.fetcher.Start()
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+	c.wg.Go(func() {
 		for {
 			select {
 			case query := <-c.dataQueryChan:
@@ -77,8 +75,7 @@ func (c *hydrationMgr) Start() {
 				state := c.getStateWithLock(query.Symbol, query.date.String())
 				if !(state == Ready || state == Hydrating) {
 					// Launch Hydration Task
-					c.wg.Add(1)
-					go c.HydrationTask(query.Symbol, query.date)
+					c.wg.Go(func() { c.HydrationTask(query.Symbol, query.date) })
 
 					// Update status -> HYDRATING
 					c.setStatusWithLock(query.Symbol, query.date.String(), Hydrating)
@@ -86,11 +83,9 @@ func (c *hydrationMgr) Start() {
 
 			case <-c.Ctx.Done():
 				return
-			default:
-				continue
 			}
 		}
-	}()
+	})
 	c.logger.LogStart()
 }
 
@@ -156,8 +151,6 @@ func (c *hydrationMgr) HydrateSymbol(ctx context.Context, symbol string, date ci
 }
 
 func (c *hydrationMgr) HydrationTask(symbol string, date civil.Date) {
-	defer c.wg.Done()
-
 	ctx := context.WithoutCancel(c.Ctx)
 
 	bars, err := c.fetcher.FetchTradingSession(c.Ctx, date, symbol)

@@ -98,10 +98,7 @@ func (t *SymbolThread) Start() {
 		t.logger.Fatal("failed to start symbol thread: t.outbox was nil")
 	}
 
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
-
+	t.wg.Go(func() {
 		quit := false
 		buffer1 := make([]common.Bar, bufferSize)
 		buffer2 := make([]common.Bar, bufferSize)
@@ -187,7 +184,7 @@ func (t *SymbolThread) Start() {
 				i = 0
 			}
 		}
-	}()
+	})
 	t.logger.LogStart()
 }
 
@@ -196,7 +193,7 @@ func (t *SymbolThread) Start() {
 // Note: The caller must not access 'buffer' until the channel signals completion to avoid data races.
 func (t *SymbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) chan error {
 	done := make(chan error, 1)
-	go func() {
+	t.wg.Go(func() {
 		// note: you can still receive from a close chan
 		defer close(done)
 
@@ -211,7 +208,7 @@ func (t *SymbolThread) asyncPopulateBuffer(buffer *[]common.Bar, t1, t2 int64) c
 		*buffer = (*buffer)[:n]
 
 		done <- err
-	}()
+	})
 
 	return done
 }

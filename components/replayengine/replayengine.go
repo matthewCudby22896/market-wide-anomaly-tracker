@@ -43,7 +43,7 @@ func NewReplayEngineServer(opts Opts) *replayEngineServer {
 	mux := http.NewServeMux()
 
 	server := &http.Server{
-		Addr:    ":" + opts.Port,
+		Addr:    "0.0.0.0" + ":" + opts.Port,
 		Handler: mux,
 	}
 
@@ -73,11 +73,7 @@ func (s *replayEngineServer) Start() {
 	s.logger.LogStartChild(s.Hub.GetID())
 	s.Hub.Start()
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-
-		// Start listening
+	s.wg.Go(func() {
 		msg := fmt.Sprintf("listening on %s", s.Server.Addr)
 		s.logger.Info(msg)
 		err := s.Server.ListenAndServe()
@@ -89,15 +85,12 @@ func (s *replayEngineServer) Start() {
 			s.logger.Error("ListenAndServe() errored", "error", err)
 			return
 		}
-	}()
+	})
 }
 
 func (s *replayEngineServer) Shutdown() {
 	// Stop serving new connections
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-
+	s.wg.Go(func() {
 		s.logger.Info("shutting down http server")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -105,7 +98,7 @@ func (s *replayEngineServer) Shutdown() {
 		if err := s.Server.Shutdown(ctx); err != nil {
 			fmt.Printf("HTTP shutdown error: %v\n", err)
 		}
-	}()
+	})
 
 	// Wait for the Hub to Stop
 	s.logger.LogStopChild(s.Hub.GetID())
